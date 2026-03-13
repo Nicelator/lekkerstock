@@ -1,22 +1,10 @@
 "use client";
-
+import type { Asset } from "@/types";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import AssetModal from "./AssetModal";
 
-interface Asset {
-  id: string;
-  title: string;
-  type: "photo" | "video" | "illustration" | "3d";
-  preview_url: string;
-  price_standard: number;
-  price_extended: number;
-  contributor_id: string;
-  contributor?: { id: string; full_name: string; avatar_url?: string };
-  tags?: string[];
-  views_count?: number;
-  downloads_count?: number;
-}
+
 
 interface Props {
   initialAssets: Asset[];
@@ -581,14 +569,13 @@ export default function MarketplaceClient({ initialAssets, user }: Props) {
         )}
       </section>
 
-      {/* Asset Modal */}
-      {selectedAsset && (
-        <AssetModal
-          asset={selectedAsset}
-          user={user}
-          onClose={() => setSelectedAsset(null)}
-        />
-      )}
+      <AssetModal
+  asset={selectedAsset!}
+  onClose={() => setSelectedAsset(null)}
+/>
+/
+        
+      
     </>
   );
 }
