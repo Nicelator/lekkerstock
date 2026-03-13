@@ -4,8 +4,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import AssetModal from "./AssetModal";
 
-
-
 interface Props {
   initialAssets: Asset[];
   user?: { id: string; email: string; name?: string } | null;
@@ -47,7 +45,6 @@ export default function MarketplaceClient({ initialAssets, user }: Props) {
 
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
-  // Intersection observer for card reveal animation
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -569,13 +566,13 @@ export default function MarketplaceClient({ initialAssets, user }: Props) {
         )}
       </section>
 
-      <AssetModal
-  asset={selectedAsset!}
-  onClose={() => setSelectedAsset(null)}
-/>
-/
-        
-      
+      {/* ── ASSET MODAL ── */}
+      {selectedAsset && (
+        <AssetModal
+          asset={selectedAsset}
+          onClose={() => setSelectedAsset(null)}
+        />
+      )}
     </>
   );
 }
