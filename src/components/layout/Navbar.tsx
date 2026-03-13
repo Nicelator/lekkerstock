@@ -127,7 +127,7 @@ export default function Navbar({ user }: NavbarProps) {
       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
         {/* AI Tools btn */}
         <Link
-          href="/ai-tools"
+          href="/marketplace"
           style={{
             display: "flex",
             alignItems: "center",
