@@ -1,11 +1,11 @@
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/server";
 import { AdminClient } from "@/components/admin/AdminClient";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = { title: "Admin — Lekkerstock" };
 
 export default async function AdminPage() {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   const [
     { data: pendingAssets },
