@@ -20,6 +20,7 @@ const BUYER_PLANS = [
     features: ["Browse full gallery", "3 standard licenses/month", "Low-res downloads"],
     unavailable: ["HD downloads", "AI editing tools", "Extended licenses"],
     highlighted: false,
+    invite: false, 
   },
   {
     key: "buyer_pro",
@@ -30,6 +31,7 @@ const BUYER_PLANS = [
     features: ["20 standard licenses/month", "HD downloads", "All AI editing tools", "Editorial access"],
     unavailable: ["Extended licenses", "Team seats"],
     highlighted: true,
+    invite: false,  
   },
   {
     key: "buyer_studio",
@@ -40,6 +42,7 @@ const BUYER_PLANS = [
     features: ["Unlimited standard licenses", "Extended licenses", "All AI tools", "5 team seats", "Priority support", "Custom invoicing"],
     unavailable: [],
     highlighted: false,
+    invite: false,  
   },
 ];
 
