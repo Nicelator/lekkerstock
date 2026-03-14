@@ -29,43 +29,56 @@ const TYPE_OPTIONS: { value: AssetType; label: string }[] = [
 ];
 
 // ── Compress image using Canvas API ──
-async function compressImage(file: File, maxWidth = 1200, quality = 0.82): Promise<Blob> {
+async function compressImage(file: File | Blob, maxWidth: number, quality: number): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const objectUrl = URL.createObjectURL(file);
-
     img.onload = () => {
       URL.revokeObjectURL(objectUrl);
-
       let { width, height } = img;
-
-      // Scale down if wider than maxWidth
-      if (width > maxWidth) {
-        height = Math.round((height * maxWidth) / width);
-        width = maxWidth;
-      }
-
+      if (width > maxWidth) { height = Math.round((height * maxWidth) / width); width = maxWidth; }
       const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-
+      canvas.width = width; canvas.height = height;
       const ctx = canvas.getContext("2d");
       if (!ctx) { reject(new Error("Canvas not supported")); return; }
-
       ctx.drawImage(img, 0, 0, width, height);
-
-      canvas.toBlob(
-        (blob) => {
-          if (blob) resolve(blob);
-          else reject(new Error("Compression failed"));
-        },
-        "image/jpeg",
-        quality
-      );
+      canvas.toBlob(blob => { if (blob) resolve(blob); else reject(new Error("Compression failed")); }, "image/jpeg", quality);
     };
-
     img.onerror = () => reject(new Error("Image load failed"));
     img.src = objectUrl;
+  });
+}
+
+// ── Extract first frame from video as JPEG blob ──
+async function extractVideoThumbnail(file: File): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement("video");
+    const objectUrl = URL.createObjectURL(file);
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "metadata";
+
+    video.onloadeddata = () => {
+      video.currentTime = 1; // seek to 1s for a better frame
+    };
+
+    video.onseeked = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1200;
+      canvas.height = Math.round((video.videoHeight / video.videoWidth) * 1200);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { URL.revokeObjectURL(objectUrl); reject(new Error("Canvas not supported")); return; }
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(blob => {
+        URL.revokeObjectURL(objectUrl);
+        if (blob) resolve(blob);
+        else reject(new Error("Thumbnail generation failed"));
+      }, "image/jpeg", 0.85);
+    };
+
+    video.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error("Video load failed")); };
+    video.src = objectUrl;
+    video.load();
   });
 }
 
@@ -90,10 +103,7 @@ export default function UploadPage() {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: {
-      "image/*": [".jpg", ".jpeg", ".png", ".webp", ".tiff"],
-      "video/*": [".mp4", ".mov", ".avi"],
-    },
+    accept: { "image/*": [".jpg", ".jpeg", ".png", ".webp", ".tiff"], "video/*": [".mp4", ".mov", ".avi"] },
     maxSize: 500 * 1024 * 1024,
     multiple: true,
   });
@@ -103,10 +113,7 @@ export default function UploadPage() {
   };
 
   const removeFile = (index: number) => {
-    setFiles(prev => {
-      if (prev[index].preview) URL.revokeObjectURL(prev[index].preview);
-      return prev.filter((_, i) => i !== index);
-    });
+    setFiles(prev => { if (prev[index].preview) URL.revokeObjectURL(prev[index].preview); return prev.filter((_, i) => i !== index); });
   };
 
   const uploadAll = async () => {
@@ -119,17 +126,8 @@ export default function UploadPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { toast.error("Please sign in"); setUploading(false); return; }
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("id, role")
-      .eq("user_id", user.id)
-      .single();
-
-    if (!profile || profile.role !== "contributor") {
-      toast.error("Contributor account required");
-      setUploading(false);
-      return;
-    }
+    const { data: profile } = await supabase.from("profiles").select("id, role").eq("user_id", user.id).single();
+    if (!profile || profile.role !== "contributor") { toast.error("Contributor account required"); setUploading(false); return; }
 
     let successCount = 0;
 
@@ -144,84 +142,78 @@ export default function UploadPage() {
         const timestamp = Date.now();
         const basePath = `${profile.id}/${timestamp}`;
         const isImage = f.file.type.startsWith("image/");
+        const isVideo = f.file.type.startsWith("video/");
 
-        // ── Step 1: Upload original file ──
+        // ── Step 1: Upload original ──
         updateFile(i, { progress: 15 });
         const { error: origError } = await supabase.storage
           .from("assets")
-          .upload(`${basePath}/original.${ext}`, f.file, {
-            contentType: f.file.type,
-            upsert: false,
-          });
+          .upload(`${basePath}/original.${ext}`, f.file, { contentType: f.file.type, upsert: false });
         if (origError) throw origError;
 
-        const { data: { publicUrl: fileUrl } } = supabase.storage
-          .from("assets")
-          .getPublicUrl(`${basePath}/original.${ext}`);
+        const { data: { publicUrl: fileUrl } } = supabase.storage.from("assets").getPublicUrl(`${basePath}/original.${ext}`);
+        updateFile(i, { progress: 45 });
 
-        updateFile(i, { progress: 50 });
-
-        // ── Step 2: Compress & upload preview (images only) ──
         let previewUrl = fileUrl;
         let thumbnailUrl = fileUrl;
 
+        // ── Step 2: Generate preview + thumbnail ──
         if (isImage) {
-          updateFile(i, { progress: 55 });
-
-          // Compressed preview — max 1200px, 82% quality
+          updateFile(i, { progress: 50 });
           const previewBlob = await compressImage(f.file, 1200, 0.82);
-          const { error: previewError } = await supabase.storage
-            .from("previews")
-            .upload(`${basePath}/preview.jpg`, previewBlob, {
-              contentType: "image/jpeg",
-              upsert: false,
-            });
-          if (previewError) throw previewError;
-
-          const { data: { publicUrl: pUrl } } = supabase.storage
-            .from("previews")
-            .getPublicUrl(`${basePath}/preview.jpg`);
+          await supabase.storage.from("previews").upload(`${basePath}/preview.jpg`, previewBlob, { contentType: "image/jpeg", upsert: false });
+          const { data: { publicUrl: pUrl } } = supabase.storage.from("previews").getPublicUrl(`${basePath}/preview.jpg`);
           previewUrl = pUrl;
 
-          updateFile(i, { progress: 75 });
-
-          // Thumbnail — max 400px, 75% quality
+          updateFile(i, { progress: 70 });
           const thumbBlob = await compressImage(f.file, 400, 0.75);
-          const { error: thumbError } = await supabase.storage
-            .from("previews")
-            .upload(`${basePath}/thumb.jpg`, thumbBlob, {
-              contentType: "image/jpeg",
-              upsert: false,
-            });
-          if (thumbError) throw thumbError;
-
-          const { data: { publicUrl: tUrl } } = supabase.storage
-            .from("previews")
-            .getPublicUrl(`${basePath}/thumb.jpg`);
+          await supabase.storage.from("previews").upload(`${basePath}/thumb.jpg`, thumbBlob, { contentType: "image/jpeg", upsert: false });
+          const { data: { publicUrl: tUrl } } = supabase.storage.from("previews").getPublicUrl(`${basePath}/thumb.jpg`);
           thumbnailUrl = tUrl;
+        }
+
+        if (isVideo) {
+          updateFile(i, { progress: 50 });
+          try {
+            // Extract first frame as thumbnail
+            const thumbBlob = await extractVideoThumbnail(f.file);
+
+            // Upload full-size preview frame
+            await supabase.storage.from("previews").upload(`${basePath}/preview.jpg`, thumbBlob, { contentType: "image/jpeg", upsert: false });
+            const { data: { publicUrl: pUrl } } = supabase.storage.from("previews").getPublicUrl(`${basePath}/preview.jpg`);
+            previewUrl = pUrl;
+
+            updateFile(i, { progress: 70 });
+
+            // Upload small thumbnail
+            const smallThumb = await compressImage(thumbBlob, 400, 0.75);
+            await supabase.storage.from("previews").upload(`${basePath}/thumb.jpg`, smallThumb, { contentType: "image/jpeg", upsert: false });
+            const { data: { publicUrl: tUrl } } = supabase.storage.from("previews").getPublicUrl(`${basePath}/thumb.jpg`);
+            thumbnailUrl = tUrl;
+          } catch (thumbErr) {
+            console.warn("Video thumbnail generation failed, using fallback:", thumbErr);
+            // Continue without thumbnail — not a fatal error
+          }
         }
 
         updateFile(i, { progress: 88 });
 
-        // ── Step 3: Save to database ──
-        const { error: dbError } = await supabase
-          .from("assets")
-          .insert({
-            contributor_id: profile.id,
-            title: f.title || f.file.name.replace(/\.[^.]+$/, ""),
-            description: f.description || null,
-            tags: f.tags.split(",").map(t => t.trim()).filter(Boolean),
-            type: f.type,
-            status: "pending",
-            file_url: fileUrl,
-            preview_url: previewUrl,
-            thumbnail_url: thumbnailUrl,
-            file_size: f.file.size,
-            is_editorial: false,
-            price_usd: 15,
-            price_ngn: 22500,
-          });
-
+        // ── Step 3: Save to DB ──
+        const { error: dbError } = await supabase.from("assets").insert({
+          contributor_id: profile.id,
+          title: f.title || f.file.name.replace(/\.[^.]+$/, ""),
+          description: f.description || null,
+          tags: f.tags.split(",").map(t => t.trim()).filter(Boolean),
+          type: f.type,
+          status: "pending",
+          file_url: fileUrl,
+          preview_url: previewUrl,
+          thumbnail_url: thumbnailUrl,
+          file_size: f.file.size,
+          is_editorial: false,
+          price_usd: 15,
+          price_ngn: 22500,
+        });
         if (dbError) throw dbError;
 
         updateFile(i, { status: "done", progress: 100 });
@@ -233,7 +225,6 @@ export default function UploadPage() {
     }
 
     setUploading(false);
-
     if (successCount > 0) {
       toast.success(`${successCount} asset${successCount > 1 ? "s" : ""} uploaded! Under review.`);
       setTimeout(() => router.push("/contributor/studio"), 2000);
@@ -243,68 +234,31 @@ export default function UploadPage() {
   const pendingCount = files.filter(f => f.status === "idle").length;
 
   return (
-    <div style={{
-      minHeight: "100vh", background: "#0e0b08",
-      maxWidth: "900px", margin: "0 auto",
-      padding: "96px 24px 48px",
-    }}>
+    <div style={{ minHeight: "100vh", background: "#0e0b08", maxWidth: "900px", margin: "0 auto", padding: "96px 24px 48px" }}>
       <div style={{ marginBottom: "32px" }}>
-        <h1 style={{
-          fontFamily: "'Cormorant Garamond', serif", fontSize: "40px",
-          fontWeight: 700, color: "#faf6ef", marginBottom: "8px",
-        }}>
-          Upload Content
-        </h1>
+        <h1 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: "40px", fontWeight: 700, color: "#faf6ef", marginBottom: "8px" }}>Upload Content</h1>
         <p style={{ color: "rgba(250,246,239,0.4)", fontSize: "14px", fontFamily: "'Outfit', sans-serif" }}>
           Photos, videos, illustrations and 3D assets. All files are reviewed before going live.
         </p>
       </div>
 
       {/* Dropzone */}
-      <div
-        {...getRootProps()}
-        style={{
-          border: `2px dashed ${isDragActive ? "#c8692e" : "rgba(200,105,46,0.25)"}`,
-          borderRadius: "6px", padding: "48px 24px", textAlign: "center",
-          cursor: "pointer", marginBottom: "24px",
-          background: isDragActive ? "rgba(200,105,46,0.06)" : "transparent",
-          transition: "all 0.2s",
-        }}
-      >
+      <div {...getRootProps()} style={{ border: `2px dashed ${isDragActive ? "#c8692e" : "rgba(200,105,46,0.25)"}`, borderRadius: "6px", padding: "48px 24px", textAlign: "center", cursor: "pointer", marginBottom: "24px", background: isDragActive ? "rgba(200,105,46,0.06)" : "transparent", transition: "all 0.2s" }}>
         <input {...getInputProps()} />
         <Upload size={36} style={{ margin: "0 auto 16px", display: "block", color: isDragActive ? "#c8692e" : "rgba(250,246,239,0.3)" }} />
-        <p style={{ fontSize: "16px", fontWeight: 600, color: "#faf6ef", fontFamily: "'Outfit', sans-serif", marginBottom: "6px" }}>
-          {isDragActive ? "Drop files here" : "Drag & drop files here"}
-        </p>
-        <p style={{ fontSize: "13px", color: "rgba(250,246,239,0.4)", fontFamily: "'Outfit', sans-serif", marginBottom: "8px" }}>
-          or click to browse
-        </p>
-        <p style={{ fontSize: "11px", color: "rgba(250,246,239,0.2)", fontFamily: "'Outfit', sans-serif" }}>
-          JPG, PNG, WebP, TIFF, MP4, MOV · Max 500MB per file · Previews auto-compressed
-        </p>
+        <p style={{ fontSize: "16px", fontWeight: 600, color: "#faf6ef", fontFamily: "'Outfit', sans-serif", marginBottom: "6px" }}>{isDragActive ? "Drop files here" : "Drag & drop files here"}</p>
+        <p style={{ fontSize: "13px", color: "rgba(250,246,239,0.4)", fontFamily: "'Outfit', sans-serif", marginBottom: "8px" }}>or click to browse</p>
+        <p style={{ fontSize: "11px", color: "rgba(250,246,239,0.2)", fontFamily: "'Outfit', sans-serif" }}>JPG, PNG, WebP, TIFF, MP4, MOV · Max 500MB · Previews & thumbnails auto-generated</p>
       </div>
 
       {/* File list */}
       {files.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "24px" }}>
           {files.map((f, i) => (
-            <div key={i} style={{
-              background: "rgba(22,16,8,0.7)",
-              border: `1px solid ${
-                f.status === "done" ? "rgba(46,204,113,0.3)" :
-                f.status === "error" ? "rgba(231,76,60,0.3)" :
-                f.status === "uploading" ? "rgba(200,105,46,0.3)" :
-                "rgba(200,105,46,0.12)"
-              }`,
-              borderRadius: "4px", padding: "16px",
-            }}>
+            <div key={i} style={{ background: "rgba(22,16,8,0.7)", border: `1px solid ${f.status === "done" ? "rgba(46,204,113,0.3)" : f.status === "error" ? "rgba(231,76,60,0.3)" : f.status === "uploading" ? "rgba(200,105,46,0.3)" : "rgba(200,105,46,0.12)"}`, borderRadius: "4px", padding: "16px" }}>
               <div style={{ display: "flex", gap: "16px" }}>
                 {/* Preview */}
-                <div style={{
-                  width: "80px", height: "60px", borderRadius: "3px",
-                  overflow: "hidden", background: "rgba(250,246,239,0.05)",
-                  flexShrink: 0, position: "relative",
-                }}>
+                <div style={{ width: "80px", height: "60px", borderRadius: "3px", overflow: "hidden", background: "rgba(250,246,239,0.05)", flexShrink: 0, position: "relative" }}>
                   {f.preview ? (
                     <img src={f.preview} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                   ) : (
@@ -312,145 +266,76 @@ export default function UploadPage() {
                       <Film size={20} color="rgba(250,246,239,0.3)" />
                     </div>
                   )}
-                  {f.status === "done" && (
-                    <div style={{ position: "absolute", inset: 0, background: "rgba(46,204,113,0.4)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <CheckCircle size={20} color="white" />
-                    </div>
-                  )}
-                  {f.status === "uploading" && (
-                    <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <div style={{ fontSize: "12px", color: "white", fontFamily: "'Outfit', sans-serif", fontWeight: 700 }}>{f.progress}%</div>
-                    </div>
-                  )}
+                  {f.status === "done" && <div style={{ position: "absolute", inset: 0, background: "rgba(46,204,113,0.4)", display: "flex", alignItems: "center", justifyContent: "center" }}><CheckCircle size={20} color="white" /></div>}
+                  {f.status === "uploading" && <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ fontSize: "12px", color: "white", fontFamily: "'Outfit', sans-serif", fontWeight: 700 }}>{f.progress}%</div></div>}
                 </div>
 
                 {/* Fields */}
                 <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                   <div>
                     <label style={{ display: "block", fontSize: "10px", fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase", color: "rgba(250,246,239,0.4)", marginBottom: "6px", fontFamily: "'Outfit', sans-serif" }}>Title *</label>
-                    <input value={f.title} onChange={e => updateFile(i, { title: e.target.value })}
-                      disabled={f.status !== "idle"} placeholder="Give your asset a title"
-                      style={{ width: "100%", padding: "8px 12px", background: "rgba(250,246,239,0.05)", border: "1px solid rgba(200,105,46,0.15)", borderRadius: "3px", color: "#faf6ef", fontFamily: "'Outfit', sans-serif", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
-                      onFocus={e => { e.target.style.borderColor = "#c8692e"; }}
-                      onBlur={e => { e.target.style.borderColor = "rgba(200,105,46,0.15)"; }}
-                    />
+                    <input value={f.title} onChange={e => updateFile(i, { title: e.target.value })} disabled={f.status !== "idle"} placeholder="Give your asset a title" style={{ width: "100%", padding: "8px 12px", background: "rgba(250,246,239,0.05)", border: "1px solid rgba(200,105,46,0.15)", borderRadius: "3px", color: "#faf6ef", fontFamily: "'Outfit', sans-serif", fontSize: "13px", outline: "none", boxSizing: "border-box" }} onFocus={e => { e.target.style.borderColor = "#c8692e"; }} onBlur={e => { e.target.style.borderColor = "rgba(200,105,46,0.15)"; }} />
                   </div>
                   <div>
                     <label style={{ display: "block", fontSize: "10px", fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase", color: "rgba(250,246,239,0.4)", marginBottom: "6px", fontFamily: "'Outfit', sans-serif" }}>Type</label>
                     <div style={{ display: "flex", gap: "4px" }}>
                       {TYPE_OPTIONS.map(({ value, label }) => (
-                        <button key={value} type="button" disabled={f.status !== "idle"}
-                          onClick={() => updateFile(i, { type: value })}
-                          style={{ flex: 1, padding: "7px 4px", borderRadius: "3px", fontSize: "10px", fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase", cursor: "pointer", border: "none", fontFamily: "'Outfit', sans-serif", transition: "all 0.2s", background: f.type === value ? "#c8692e" : "rgba(250,246,239,0.06)", color: f.type === value ? "white" : "rgba(250,246,239,0.4)" }}
-                        >{label}</button>
+                        <button key={value} type="button" disabled={f.status !== "idle"} onClick={() => updateFile(i, { type: value })} style={{ flex: 1, padding: "7px 4px", borderRadius: "3px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", cursor: "pointer", border: "none", fontFamily: "'Outfit', sans-serif", transition: "all 0.2s", background: f.type === value ? "#c8692e" : "rgba(250,246,239,0.06)", color: f.type === value ? "white" : "rgba(250,246,239,0.4)" }}>{label}</button>
                       ))}
                     </div>
                   </div>
                   <div>
                     <label style={{ display: "block", fontSize: "10px", fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase", color: "rgba(250,246,239,0.4)", marginBottom: "6px", fontFamily: "'Outfit', sans-serif" }}>Tags (comma separated)</label>
-                    <input value={f.tags} onChange={e => updateFile(i, { tags: e.target.value })}
-                      disabled={f.status !== "idle"} placeholder="Lagos, Nigeria, street, urban"
-                      style={{ width: "100%", padding: "8px 12px", background: "rgba(250,246,239,0.05)", border: "1px solid rgba(200,105,46,0.15)", borderRadius: "3px", color: "#faf6ef", fontFamily: "'Outfit', sans-serif", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
-                      onFocus={e => { e.target.style.borderColor = "#c8692e"; }}
-                      onBlur={e => { e.target.style.borderColor = "rgba(200,105,46,0.15)"; }}
-                    />
+                    <input value={f.tags} onChange={e => updateFile(i, { tags: e.target.value })} disabled={f.status !== "idle"} placeholder="Lagos, Nigeria, street, urban" style={{ width: "100%", padding: "8px 12px", background: "rgba(250,246,239,0.05)", border: "1px solid rgba(200,105,46,0.15)", borderRadius: "3px", color: "#faf6ef", fontFamily: "'Outfit', sans-serif", fontSize: "13px", outline: "none", boxSizing: "border-box" }} onFocus={e => { e.target.style.borderColor = "#c8692e"; }} onBlur={e => { e.target.style.borderColor = "rgba(200,105,46,0.15)"; }} />
                   </div>
                   <div>
                     <label style={{ display: "block", fontSize: "10px", fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase", color: "rgba(250,246,239,0.4)", marginBottom: "6px", fontFamily: "'Outfit', sans-serif" }}>Description (optional)</label>
-                    <input value={f.description} onChange={e => updateFile(i, { description: e.target.value })}
-                      disabled={f.status !== "idle"} placeholder="Brief description..."
-                      style={{ width: "100%", padding: "8px 12px", background: "rgba(250,246,239,0.05)", border: "1px solid rgba(200,105,46,0.15)", borderRadius: "3px", color: "#faf6ef", fontFamily: "'Outfit', sans-serif", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
-                      onFocus={e => { e.target.style.borderColor = "#c8692e"; }}
-                      onBlur={e => { e.target.style.borderColor = "rgba(200,105,46,0.15)"; }}
-                    />
+                    <input value={f.description} onChange={e => updateFile(i, { description: e.target.value })} disabled={f.status !== "idle"} placeholder="Brief description..." style={{ width: "100%", padding: "8px 12px", background: "rgba(250,246,239,0.05)", border: "1px solid rgba(200,105,46,0.15)", borderRadius: "3px", color: "#faf6ef", fontFamily: "'Outfit', sans-serif", fontSize: "13px", outline: "none", boxSizing: "border-box" }} onFocus={e => { e.target.style.borderColor = "#c8692e"; }} onBlur={e => { e.target.style.borderColor = "rgba(200,105,46,0.15)"; }} />
                   </div>
                 </div>
 
-                {/* Remove */}
-                <button onClick={() => removeFile(i)} disabled={f.status === "uploading"}
-                  style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(250,246,239,0.3)", alignSelf: "flex-start", padding: "2px", transition: "color 0.2s" }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "#e74c3c"; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "rgba(250,246,239,0.3)"; }}
-                >
+                <button onClick={() => removeFile(i)} disabled={f.status === "uploading"} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(250,246,239,0.3)", alignSelf: "flex-start", padding: "2px", transition: "color 0.2s" }} onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "#e74c3c"; }} onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "rgba(250,246,239,0.3)"; }}>
                   <X size={16} />
                 </button>
               </div>
 
-              {/* Progress bar */}
               {f.status === "uploading" && (
                 <div style={{ marginTop: "12px" }}>
                   <div style={{ height: "3px", background: "rgba(200,105,46,0.15)", borderRadius: "99px", overflow: "hidden" }}>
                     <div style={{ height: "100%", background: "#c8692e", borderRadius: "99px", width: `${f.progress}%`, transition: "width 0.4s ease" }} />
                   </div>
                   <div style={{ fontSize: "10px", color: "rgba(250,246,239,0.3)", fontFamily: "'Outfit', sans-serif", marginTop: "4px" }}>
-                    {f.progress < 50 ? "Uploading original..." : f.progress < 80 ? "Generating preview & thumbnail..." : "Saving..."}
+                    {f.progress < 45 ? "Uploading original..." : f.progress < 80 ? f.type === "video" ? "Generating video thumbnail..." : "Generating preview & thumbnail..." : "Saving..."}
                   </div>
                 </div>
               )}
 
-              {/* Meta + status */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "10px", paddingLeft: "96px" }}>
-                <span style={{ fontSize: "11px", color: "rgba(250,246,239,0.3)", fontFamily: "'Outfit', sans-serif" }}>
-                  {f.file.name} · {formatBytes(f.file.size)}
-                </span>
-                {f.status === "error" && (
-                  <span style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", color: "#e74c3c", fontFamily: "'Outfit', sans-serif" }}>
-                    <AlertCircle size={11} /> {f.error}
-                  </span>
-                )}
-                {f.status === "done" && (
-                  <span style={{ fontSize: "11px", color: "#2ecc71", fontFamily: "'Outfit', sans-serif" }}>
-                    ✓ Uploaded — under review
-                  </span>
-                )}
+                <span style={{ fontSize: "11px", color: "rgba(250,246,239,0.3)", fontFamily: "'Outfit', sans-serif" }}>{f.file.name} · {formatBytes(f.file.size)}</span>
+                {f.status === "error" && <span style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", color: "#e74c3c", fontFamily: "'Outfit', sans-serif" }}><AlertCircle size={11} /> {f.error}</span>}
+                {f.status === "done" && <span style={{ fontSize: "11px", color: "#2ecc71", fontFamily: "'Outfit', sans-serif" }}>✓ Uploaded — under review</span>}
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Actions */}
       {files.length > 0 && (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <p style={{ fontSize: "13px", color: "rgba(250,246,239,0.4)", fontFamily: "'Outfit', sans-serif" }}>
-            {pendingCount} file{pendingCount !== 1 ? "s" : ""} ready to upload
-          </p>
+          <p style={{ fontSize: "13px", color: "rgba(250,246,239,0.4)", fontFamily: "'Outfit', sans-serif" }}>{pendingCount} file{pendingCount !== 1 ? "s" : ""} ready to upload</p>
           <div style={{ display: "flex", gap: "10px" }}>
-            <button onClick={() => setFiles([])} disabled={uploading} style={{
-              padding: "10px 20px", background: "transparent",
-              border: "1px solid rgba(200,105,46,0.2)", borderRadius: "3px",
-              color: "rgba(250,246,239,0.5)", fontFamily: "'Outfit', sans-serif",
-              fontSize: "13px", cursor: "pointer",
-            }}>
-              Clear All
-            </button>
-            <button onClick={uploadAll} disabled={uploading || pendingCount === 0} style={{
-              padding: "10px 28px",
-              background: uploading || pendingCount === 0 ? "rgba(200,105,46,0.4)" : "#c8692e",
-              border: "none", borderRadius: "3px", color: "white",
-              fontFamily: "'Outfit', sans-serif", fontSize: "13px", fontWeight: 600,
-              cursor: uploading || pendingCount === 0 ? "not-allowed" : "pointer",
-              transition: "background 0.2s", display: "flex", alignItems: "center", gap: "8px",
-            }}
+            <button onClick={() => setFiles([])} disabled={uploading} style={{ padding: "10px 20px", background: "transparent", border: "1px solid rgba(200,105,46,0.2)", borderRadius: "3px", color: "rgba(250,246,239,0.5)", fontFamily: "'Outfit', sans-serif", fontSize: "13px", cursor: "pointer" }}>Clear All</button>
+            <button onClick={uploadAll} disabled={uploading || pendingCount === 0} style={{ padding: "10px 28px", background: uploading || pendingCount === 0 ? "rgba(200,105,46,0.4)" : "#c8692e", border: "none", borderRadius: "3px", color: "white", fontFamily: "'Outfit', sans-serif", fontSize: "13px", fontWeight: 600, cursor: uploading || pendingCount === 0 ? "not-allowed" : "pointer", transition: "background 0.2s", display: "flex", alignItems: "center", gap: "8px" }}
               onMouseEnter={e => { if (!uploading && pendingCount > 0) (e.currentTarget as HTMLElement).style.background = "#e8843a"; }}
               onMouseLeave={e => { if (!uploading && pendingCount > 0) (e.currentTarget as HTMLElement).style.background = "#c8692e"; }}
             >
-              {uploading ? (
-                <>
-                  <div style={{ width: "14px", height: "14px", border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "white", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
-                  Uploading...
-                </>
-              ) : `Upload ${pendingCount} Asset${pendingCount !== 1 ? "s" : ""}`}
+              {uploading ? (<><div style={{ width: "14px", height: "14px", border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "white", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />Uploading...</>) : `Upload ${pendingCount} Asset${pendingCount !== 1 ? "s" : ""}`}
             </button>
           </div>
         </div>
       )}
 
-      {files.length === 0 && (
-        <p style={{ textAlign: "center", fontSize: "13px", color: "rgba(250,246,239,0.3)", fontFamily: "'Outfit', sans-serif" }}>
-          Drop some files above to get started. Each asset is reviewed within 48 hours.
-        </p>
-      )}
+      {files.length === 0 && <p style={{ textAlign: "center", fontSize: "13px", color: "rgba(250,246,239,0.3)", fontFamily: "'Outfit', sans-serif" }}>Drop some files above to get started. Each asset is reviewed within 48 hours.</p>}
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
