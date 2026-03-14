@@ -165,7 +165,7 @@ export default function MarketplaceClient({ initialAssets, user }: Props) {
             <div style={{ fontSize: "13px" }}>Try different keywords or clear your filters</div>
           </div>
         ) : (
-          <div style={{ columns: "3 280px", columnGap: "12px" }}>
+          <div style={{ columns: "4 200px", columnGap: "10px" }}>
             {assets.map((asset) => (
               <AssetCard
                 key={asset.id}
@@ -219,8 +219,8 @@ const AssetCard = React.forwardRef<
         overflow: "hidden",
         borderRadius: "4px",
         cursor: "pointer",
-        marginBottom: "12px",
-        breakInside: "avoid",
+        marginBottom: "10px",
+breakInside: "avoid",
         opacity: loaded ? 1 : 0,
         transition: "opacity 0.4s ease, transform 0.3s ease",
         transform: hovered ? "translateY(-2px)" : "translateY(0)",
