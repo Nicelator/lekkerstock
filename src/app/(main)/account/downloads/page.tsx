@@ -26,7 +26,7 @@ export default function DownloadsPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-bg px-4 sm:px-6 lg:px-8 py-16">
+    <div className="min-h-screen bg-bg px-4 sm:px-6 lg:px-8 pt-24 pb-16">
       <div className="max-w-4xl mx-auto">
         <h1 className="text-3xl font-bold text-cream mb-2">My Downloads</h1>
         <p className="text-muted text-sm mb-8">All your licensed assets in one place.</p>

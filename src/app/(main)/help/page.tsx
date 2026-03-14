@@ -47,7 +47,7 @@ const CATEGORIES = [
 
 export default function HelpPage() {
   return (
-    <div className="min-h-screen bg-bg px-4 sm:px-6 lg:px-8 py-16">
+    <div className="min-h-screen bg-bg px-4 sm:px-6 lg:px-8 pt-24 pb-16">
       <div className="max-w-3xl mx-auto">
         <div className="text-center mb-14">
           <p className="section-tag mb-3">Help Centre</p>

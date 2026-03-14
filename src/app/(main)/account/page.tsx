@@ -64,7 +64,7 @@ export default function AccountPage() {
   ] as const;
 
   return (
-    <div className="min-h-screen bg-bg px-4 sm:px-6 lg:px-8 py-16">
+    <div className="min-h-screen bg-bg px-4 sm:px-6 lg:px-8 pt-24 pb-16">
       <div className="max-w-2xl mx-auto">
         <h1 className="text-3xl font-bold text-cream mb-8">My Account</h1>
 
