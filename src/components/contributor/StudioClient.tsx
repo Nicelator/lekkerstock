@@ -1,14 +1,14 @@
 "use client";
-// src/components/contributor/StudioClient.tsx
 import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import {
-  LayoutDashboard, Upload, BarChart2, DollarSign,
-  TrendingUp, Image as ImageIcon, Eye, Download,
-  Clock, CheckCircle, XCircle, ArrowUpRight
+  Upload, BarChart2, DollarSign, TrendingUp,
+  Eye, Download, Clock, CheckCircle, XCircle,
+  ArrowUpRight, ArrowUp, ArrowDown, Search,
+  ChevronDown
 } from "lucide-react";
-import { cn, formatCurrency, formatDate, getPlanDisplayName } from "@/lib/utils";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import { WithdrawModal } from "./WithdrawModal";
 
 interface Props {
@@ -18,299 +18,463 @@ interface Props {
   recentSales: any[];
 }
 
-type ActiveTab = "overview" | "content" | "analytics" | "finance";
+type SortKey = "title" | "status" | "views" | "downloads" | "price_usd" | "created_at";
+type SortDir = "asc" | "desc";
+type ActiveTab = "content" | "analytics" | "finance";
+
+const STATUS_STYLES: Record<string, { bg: string; color: string; border: string; label: string }> = {
+  approved: { bg: "rgba(46,204,113,0.1)", color: "#2ecc71", border: "rgba(46,204,113,0.25)", label: "Live" },
+  pending:  { bg: "rgba(212,168,83,0.1)",  color: "#d4a853", border: "rgba(212,168,83,0.25)",  label: "In Review" },
+  rejected: { bg: "rgba(231,76,60,0.1)",   color: "#e74c3c", border: "rgba(231,76,60,0.25)",   label: "Rejected" },
+};
 
 export function StudioClient({ profile, assets, earnings, recentSales }: Props) {
-  const [activeTab, setActiveTab] = useState<ActiveTab>("overview");
+  const [activeTab, setActiveTab] = useState<ActiveTab>("content");
   const [showWithdraw, setShowWithdraw] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>("created_at");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   const approvedAssets = assets.filter(a => a.status === "approved");
-  const pendingAssets = assets.filter(a => a.status === "pending");
-  const totalViews = assets.reduce((sum, a) => sum + a.views, 0);
-  const totalDownloads = assets.reduce((sum, a) => sum + a.downloads, 0);
+  const pendingAssets  = assets.filter(a => a.status === "pending");
+  const totalViews     = assets.reduce((s, a) => s + (a.views || 0), 0);
+  const totalDownloads = assets.reduce((s, a) => s + (a.downloads || 0), 0);
 
-  const tabs = [
-    { id: "overview" as ActiveTab, label: "Overview", icon: LayoutDashboard },
-    { id: "content" as ActiveTab, label: "My Content", icon: ImageIcon },
-    { id: "analytics" as ActiveTab, label: "Analytics", icon: BarChart2 },
-    { id: "finance" as ActiveTab, label: "Finance", icon: DollarSign },
-  ];
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortKey(key); setSortDir("desc"); }
+  };
+
+  const filteredAssets = assets
+    .filter(a => {
+      const matchSearch = a.title.toLowerCase().includes(search.toLowerCase());
+      const matchStatus = statusFilter === "all" || a.status === statusFilter;
+      return matchSearch && matchStatus;
+    })
+    .sort((a, b) => {
+      const av = a[sortKey] ?? "";
+      const bv = b[sortKey] ?? "";
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+
+  const SortIcon = ({ k }: { k: SortKey }) => {
+    if (sortKey !== k) return <ChevronDown size={12} style={{ opacity: 0.3 }} />;
+    return sortDir === "asc" ? <ArrowUp size={12} style={{ color: "#c8692e" }} /> : <ArrowDown size={12} style={{ color: "#c8692e" }} />;
+  };
+
+  const thStyle = (k?: SortKey): React.CSSProperties => ({
+    padding: "10px 16px", textAlign: "left", fontSize: "11px", fontWeight: 600,
+    letterSpacing: "0.5px", textTransform: "uppercase", color: "rgba(250,246,239,0.35)",
+    fontFamily: "'Outfit', sans-serif", cursor: k ? "pointer" : "default",
+    userSelect: "none", whiteSpace: "nowrap",
+    background: "rgba(10,8,5,0.8)",
+  });
 
   return (
-    <div className="min-h-screen bg-bg pt-16">
-      {/* Studio header */}
-      <div className="border-b border-border bg-[#0a0805]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between py-5">
+    <div style={{ minHeight: "100vh", background: "#0e0b08", paddingTop: "64px" }}>
+
+      {/* ── EARNINGS BANNER ── */}
+      <div style={{
+        background: "linear-gradient(135deg, #0a0805 0%, rgba(200,105,46,0.08) 100%)",
+        borderBottom: "1px solid rgba(200,105,46,0.15)",
+      }}>
+        <div style={{ maxWidth: "1280px", margin: "0 auto", padding: "28px 32px" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "24px", flexWrap: "wrap" }}>
+
+            {/* Left — identity */}
             <div>
-              <h1 className="font-serif text-2xl font-bold text-cream">Creator Studio</h1>
-              <p className="text-sm text-muted mt-0.5">
-                {profile.full_name} · <span className="text-clay">{getPlanDisplayName(profile.plan)}</span>
-              </p>
+              <div style={{ fontSize: "11px", letterSpacing: "3px", textTransform: "uppercase", color: "#c8692e", fontWeight: 600, fontFamily: "'Outfit', sans-serif", marginBottom: "6px" }}>
+                Creator Studio
+              </div>
+              <h1 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: "28px", fontWeight: 700, color: "#faf6ef", marginBottom: "2px" }}>
+                {profile.full_name}
+              </h1>
+              <div style={{ fontSize: "12px", color: "rgba(250,246,239,0.35)", fontFamily: "'Outfit', sans-serif" }}>
+                {profile.plan ? profile.plan.charAt(0).toUpperCase() + profile.plan.slice(1) : "Free"} Plan · {approvedAssets.length} live assets
+              </div>
             </div>
-            <Link href="/contributor/upload" className="btn-primary text-xs px-4 py-2.5">
-              <Upload size={13} /> Upload Content
-            </Link>
-          </div>
 
-          {/* Tabs */}
-          <div className="flex gap-1 -mb-px overflow-x-auto">
-            {tabs.map(({ id, label, icon: Icon }) => (
-              <button
-                key={id}
-                onClick={() => setActiveTab(id)}
-                className={cn(
-                  "flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition-colors",
-                  activeTab === id
-                    ? "border-clay text-cream"
-                    : "border-transparent text-muted hover:text-cream"
-                )}
-              >
-                <Icon size={14} />
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-
-        {/* ── OVERVIEW ── */}
-        {activeTab === "overview" && (
-          <div className="space-y-8 animate-fade-in">
-            {/* Stats grid */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Center — key numbers */}
+            <div style={{ display: "flex", gap: "2px", flex: 1, maxWidth: "700px" }}>
               {[
-                { label: "Available Balance", value: formatCurrency(profile.available_balance, "USD"), sub: "Ready to withdraw", icon: DollarSign, color: "text-green-400" },
-                { label: "Total Earnings", value: formatCurrency(profile.total_earnings, "USD"), sub: "All time", icon: TrendingUp, color: "text-clay" },
-                { label: "Approved Assets", value: approvedAssets.length, sub: `${pendingAssets.length} pending review`, icon: CheckCircle, color: "text-blue-400" },
-                { label: "Total Downloads", value: totalDownloads.toLocaleString(), sub: `${totalViews.toLocaleString()} views`, icon: Download, color: "text-purple-400" },
-              ].map(stat => (
-                <div key={stat.label} className="card p-5">
-                  <div className="flex items-start justify-between mb-3">
-                    <p className="text-xs text-muted uppercase tracking-wider">{stat.label}</p>
-                    <stat.icon size={16} className={stat.color} />
+                { label: "Available Balance", value: formatCurrency(profile.available_balance || 0, "USD"), sub: "Ready to withdraw", accent: true },
+                { label: "Total Earned", value: formatCurrency(profile.total_earnings || 0, "USD"), sub: "All time" },
+                { label: "Total Downloads", value: (totalDownloads).toLocaleString(), sub: `${totalViews.toLocaleString()} views` },
+                { label: "Pending Review", value: pendingAssets.length, sub: `${assets.filter(a => a.status === "rejected").length} rejected` },
+              ].map((stat, i) => (
+                <div key={stat.label} style={{
+                  flex: 1, padding: "16px 20px",
+                  background: stat.accent ? "rgba(200,105,46,0.1)" : "rgba(250,246,239,0.03)",
+                  border: `1px solid ${stat.accent ? "rgba(200,105,46,0.25)" : "rgba(250,246,239,0.06)"}`,
+                  borderRadius: i === 0 ? "4px 0 0 4px" : i === 3 ? "0 4px 4px 0" : "0",
+                }}>
+                  <div style={{ fontSize: "10px", letterSpacing: "0.5px", textTransform: "uppercase", color: "rgba(250,246,239,0.35)", fontFamily: "'Outfit', sans-serif", marginBottom: "6px" }}>
+                    {stat.label}
                   </div>
-                  <p className="text-2xl font-bold text-cream mb-1">{stat.value}</p>
-                  <p className="text-xs text-muted">{stat.sub}</p>
+                  <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: "24px", fontWeight: 700, color: stat.accent ? "#c8692e" : "#faf6ef", lineHeight: 1 }}>
+                    {stat.value}
+                  </div>
+                  <div style={{ fontSize: "11px", color: "rgba(250,246,239,0.3)", fontFamily: "'Outfit', sans-serif", marginTop: "4px" }}>
+                    {stat.sub}
+                  </div>
                 </div>
               ))}
             </div>
 
-            {/* Quick actions */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {/* Recent sales */}
-              <div className="card p-5">
-                <h3 className="text-sm font-semibold text-cream mb-4 flex items-center justify-between">
-                  Recent Sales
-                  <button onClick={() => setActiveTab("finance")} className="text-xs text-clay hover:text-clay-dark transition-colors flex items-center gap-1">
-                    View all <ArrowUpRight size={11} />
-                  </button>
-                </h3>
-                {recentSales.length === 0 ? (
-                  <p className="text-sm text-muted text-center py-6">No sales yet — keep uploading!</p>
-                ) : (
-                  <div className="space-y-3">
-                    {recentSales.slice(0, 5).map((sale: any, i: number) => (
-                      <div key={i} className="flex items-center gap-3">
-                        {sale.asset?.thumbnail_url && (
-                          <div className="relative w-10 h-10 rounded overflow-hidden shrink-0">
-                            <Image src={sale.asset.thumbnail_url} alt="" fill className="object-cover" sizes="40px" />
-                          </div>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium text-cream truncate">{sale.asset?.title || "Asset"}</p>
-                          <p className="text-[10px] text-muted">{formatDate(sale.created_at)}</p>
-                        </div>
-                        <span className="text-sm font-bold text-green-400">
-                          +{formatCurrency(sale.net_amount, sale.currency || "USD")}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Pending assets */}
-              <div className="card p-5">
-                <h3 className="text-sm font-semibold text-cream mb-4 flex items-center justify-between">
-                  Content Status
-                  <button onClick={() => setActiveTab("content")} className="text-xs text-clay hover:text-clay-dark transition-colors flex items-center gap-1">
-                    Manage <ArrowUpRight size={11} />
-                  </button>
-                </h3>
-                <div className="space-y-2">
-                  {[
-                    { label: "Approved", count: approvedAssets.length, color: "bg-green-500", icon: CheckCircle },
-                    { label: "Pending Review", count: pendingAssets.length, color: "bg-yellow-500", icon: Clock },
-                    { label: "Rejected", count: assets.filter(a => a.status === "rejected").length, color: "bg-red-500", icon: XCircle },
-                  ].map(item => (
-                    <div key={item.label} className="flex items-center gap-3 py-1.5">
-                      <item.icon size={14} className="text-muted" />
-                      <span className="text-sm text-muted flex-1">{item.label}</span>
-                      <div className="flex items-center gap-2">
-                        <div className="w-16 h-1.5 bg-border rounded-full overflow-hidden">
-                          <div
-                            className={cn("h-full rounded-full", item.color)}
-                            style={{ width: `${assets.length ? (item.count / assets.length) * 100 : 0}%` }}
-                          />
-                        </div>
-                        <span className="text-sm font-semibold text-cream w-6 text-right">{item.count}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {profile.available_balance > 0 && (
-                  <button
-                    onClick={() => setShowWithdraw(true)}
-                    className="btn-primary w-full mt-4 text-xs py-2.5"
-                  >
-                    Withdraw {formatCurrency(profile.available_balance, "USD")}
-                  </button>
-                )}
-              </div>
+            {/* Right — actions */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px", alignItems: "flex-end" }}>
+              <Link href="/contributor/upload" style={{
+                display: "flex", alignItems: "center", gap: "7px",
+                padding: "10px 20px", background: "#c8692e", border: "none",
+                borderRadius: "3px", color: "white", fontFamily: "'Outfit', sans-serif",
+                fontSize: "13px", fontWeight: 600, textDecoration: "none",
+                transition: "background 0.2s",
+              }}>
+                <Upload size={13} /> Upload Content
+              </Link>
+              {(profile.available_balance || 0) > 0 && (
+                <button onClick={() => setShowWithdraw(true)} style={{
+                  display: "flex", alignItems: "center", gap: "7px",
+                  padding: "10px 20px", background: "transparent",
+                  border: "1px solid rgba(46,204,113,0.35)", borderRadius: "3px",
+                  color: "#2ecc71", fontFamily: "'Outfit', sans-serif",
+                  fontSize: "13px", fontWeight: 600, cursor: "pointer",
+                }}>
+                  <DollarSign size={13} /> Withdraw Funds
+                </button>
+              )}
             </div>
           </div>
-        )}
+        </div>
+      </div>
 
-        {/* ── CONTENT ── */}
+      {/* ── TAB NAV ── */}
+      <div style={{ background: "#0a0805", borderBottom: "1px solid rgba(200,105,46,0.1)" }}>
+        <div style={{ maxWidth: "1280px", margin: "0 auto", padding: "0 32px", display: "flex", gap: "4px" }}>
+          {([
+            { id: "content", label: "My Content", icon: Upload },
+            { id: "analytics", label: "Analytics", icon: BarChart2 },
+            { id: "finance", label: "Finance", icon: DollarSign },
+          ] as const).map(({ id, label, icon: Icon }) => (
+            <button key={id} onClick={() => setActiveTab(id)} style={{
+              display: "flex", alignItems: "center", gap: "7px",
+              padding: "14px 18px", fontSize: "13px", fontWeight: 500,
+              fontFamily: "'Outfit', sans-serif", cursor: "pointer",
+              background: "transparent", border: "none",
+              borderBottom: `2px solid ${activeTab === id ? "#c8692e" : "transparent"}`,
+              color: activeTab === id ? "#faf6ef" : "rgba(250,246,239,0.4)",
+              transition: "all 0.2s",
+            }}>
+              <Icon size={14} /> {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ maxWidth: "1280px", margin: "0 auto", padding: "28px 32px" }}>
+
+        {/* ── CONTENT TAB ── */}
         {activeTab === "content" && (
-          <div className="animate-fade-in">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-semibold text-cream">My Content ({assets.length})</h2>
-              <Link href="/contributor/upload" className="btn-primary text-xs px-4 py-2">
-                <Upload size={12} /> Upload
-              </Link>
+          <div>
+            {/* Toolbar */}
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
+              {/* Search */}
+              <div style={{ position: "relative", flex: 1, maxWidth: "320px" }}>
+                <Search size={14} style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", color: "rgba(250,246,239,0.3)" }} />
+                <input
+                  value={search} onChange={e => setSearch(e.target.value)}
+                  placeholder="Search your content..."
+                  style={{
+                    width: "100%", padding: "9px 12px 9px 36px",
+                    background: "rgba(250,246,239,0.04)", border: "1px solid rgba(200,105,46,0.15)",
+                    borderRadius: "3px", color: "#faf6ef", fontFamily: "'Outfit', sans-serif",
+                    fontSize: "13px", outline: "none", boxSizing: "border-box",
+                  }}
+                  onFocus={e => { e.target.style.borderColor = "#c8692e"; }}
+                  onBlur={e => { e.target.style.borderColor = "rgba(200,105,46,0.15)"; }}
+                />
+              </div>
+
+              {/* Status filter */}
+              <div style={{ display: "flex", gap: "4px" }}>
+                {["all", "approved", "pending", "rejected"].map(s => (
+                  <button key={s} onClick={() => setStatusFilter(s)} style={{
+                    padding: "7px 14px", borderRadius: "3px", fontSize: "12px",
+                    fontWeight: 500, fontFamily: "'Outfit', sans-serif", cursor: "pointer",
+                    border: `1px solid ${statusFilter === s ? "rgba(200,105,46,0.4)" : "rgba(200,105,46,0.12)"}`,
+                    background: statusFilter === s ? "rgba(200,105,46,0.1)" : "transparent",
+                    color: statusFilter === s ? "#c8692e" : "rgba(250,246,239,0.4)",
+                    textTransform: "capitalize", transition: "all 0.15s",
+                  }}>
+                    {s === "all" ? `All (${assets.length})` :
+                     s === "approved" ? `Live (${approvedAssets.length})` :
+                     s === "pending" ? `Review (${pendingAssets.length})` :
+                     `Rejected (${assets.filter(a => a.status === "rejected").length})`}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ marginLeft: "auto", fontSize: "12px", color: "rgba(250,246,239,0.3)", fontFamily: "'Outfit', sans-serif" }}>
+                {filteredAssets.length} assets
+              </div>
             </div>
-            {assets.length === 0 ? (
-              <div className="text-center py-20 text-muted">
-                <Upload size={40} className="mx-auto mb-4 opacity-30" />
-                <p className="text-lg mb-2">No content yet</p>
-                <p className="text-sm mb-6">Upload your first asset to start earning</p>
-                <Link href="/contributor/upload" className="btn-primary">Upload Now</Link>
+
+            {/* Table */}
+            {filteredAssets.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "80px 0" }}>
+                <Upload size={36} style={{ margin: "0 auto 16px", display: "block", color: "rgba(250,246,239,0.15)" }} />
+                <p style={{ fontSize: "15px", color: "rgba(250,246,239,0.3)", fontFamily: "'Outfit', sans-serif", marginBottom: "16px" }}>
+                  {search || statusFilter !== "all" ? "No matching assets" : "No content yet — upload your first asset"}
+                </p>
+                {!search && statusFilter === "all" && (
+                  <Link href="/contributor/upload" style={{
+                    padding: "10px 24px", background: "#c8692e", borderRadius: "3px",
+                    color: "white", fontSize: "13px", fontWeight: 600,
+                    fontFamily: "'Outfit', sans-serif", textDecoration: "none",
+                  }}>
+                    Upload Now
+                  </Link>
+                )}
               </div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                {assets.map(asset => (
-                  <div key={asset.id} className="group relative card overflow-hidden">
-                    <div className="relative aspect-[4/3]">
-                      <Image
-                        src={asset.thumbnail_url || asset.preview_url}
-                        alt={asset.title}
-                        fill
-                        className="object-cover"
-                        sizes="(max-width: 640px) 50vw, 25vw"
-                      />
-                      <div className={cn(
-                        "absolute top-2 right-2 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider",
-                        asset.status === "approved" ? "bg-green-500/20 text-green-400 border border-green-500/30" :
-                        asset.status === "pending" ? "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30" :
-                        "bg-red-500/20 text-red-400 border border-red-500/30"
-                      )}>
-                        {asset.status}
-                      </div>
-                    </div>
-                    <div className="p-3">
-                      <p className="text-xs font-medium text-cream line-clamp-1">{asset.title}</p>
-                      <div className="flex items-center gap-3 mt-1.5 text-[10px] text-muted">
-                        <span className="flex items-center gap-1"><Eye size={9} />{asset.views}</span>
-                        <span className="flex items-center gap-1"><Download size={9} />{asset.downloads}</span>
-                        <span className="ml-auto text-clay">${asset.price_usd}</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+              <div style={{ border: "1px solid rgba(200,105,46,0.12)", borderRadius: "4px", overflow: "hidden" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid rgba(200,105,46,0.12)" }}>
+                      <th style={{ ...thStyle(), width: "48px" }}></th>
+                      <th style={thStyle("title")} onClick={() => handleSort("title")}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>Title <SortIcon k="title" /></div>
+                      </th>
+                      <th style={thStyle("status")} onClick={() => handleSort("status")}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>Status <SortIcon k="status" /></div>
+                      </th>
+                      <th style={thStyle("views")} onClick={() => handleSort("views")}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>Views <SortIcon k="views" /></div>
+                      </th>
+                      <th style={thStyle("downloads")} onClick={() => handleSort("downloads")}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>Downloads <SortIcon k="downloads" /></div>
+                      </th>
+                      <th style={thStyle("price_usd")} onClick={() => handleSort("price_usd")}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>Price <SortIcon k="price_usd" /></div>
+                      </th>
+                      <th style={thStyle("created_at")} onClick={() => handleSort("created_at")}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>Uploaded <SortIcon k="created_at" /></div>
+                      </th>
+                      <th style={thStyle()}>Earned</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredAssets.map((asset, i) => {
+                      const s = STATUS_STYLES[asset.status] || STATUS_STYLES.pending;
+                      const earned = (asset.downloads || 0) * (asset.price_usd || 15) * 0.65;
+                      return (
+                        <tr key={asset.id} style={{
+                          borderBottom: i < filteredAssets.length - 1 ? "1px solid rgba(200,105,46,0.07)" : "none",
+                          background: i % 2 === 0 ? "transparent" : "rgba(250,246,239,0.01)",
+                          transition: "background 0.15s",
+                        }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "rgba(200,105,46,0.04)"; }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = i % 2 === 0 ? "transparent" : "rgba(250,246,239,0.01)"; }}
+                        >
+                          {/* Thumbnail */}
+                          <td style={{ padding: "10px 12px" }}>
+                            <div style={{ width: "40px", height: "30px", borderRadius: "2px", overflow: "hidden", background: "rgba(250,246,239,0.05)", position: "relative", flexShrink: 0 }}>
+                              {asset.thumbnail_url
+                                ? <Image src={asset.thumbnail_url} alt={asset.title} fill style={{ objectFit: "cover" }} sizes="40px" />
+                                : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px" }}>
+                                    {asset.type === "video" ? "🎬" : "📷"}
+                                  </div>
+                              }
+                            </div>
+                          </td>
+
+                          {/* Title */}
+                          <td style={{ padding: "10px 16px", maxWidth: "260px" }}>
+                            <div style={{ fontSize: "13px", fontWeight: 500, color: "#faf6ef", fontFamily: "'Outfit', sans-serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {asset.title}
+                            </div>
+                            <div style={{ fontSize: "10px", color: "rgba(250,246,239,0.3)", fontFamily: "'Outfit', sans-serif", textTransform: "capitalize", marginTop: "2px" }}>
+                              {asset.type}
+                            </div>
+                          </td>
+
+                          {/* Status */}
+                          <td style={{ padding: "10px 16px" }}>
+                            <span style={{
+                              padding: "3px 10px", borderRadius: "99px", fontSize: "10px",
+                              fontWeight: 600, letterSpacing: "0.3px", fontFamily: "'Outfit', sans-serif",
+                              background: s.bg, color: s.color, border: `1px solid ${s.border}`,
+                            }}>
+                              {s.label}
+                            </span>
+                          </td>
+
+                          {/* Views */}
+                          <td style={{ padding: "10px 16px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "13px", color: "rgba(250,246,239,0.6)", fontFamily: "'Outfit', sans-serif" }}>
+                              <Eye size={11} style={{ opacity: 0.5 }} />
+                              {(asset.views || 0).toLocaleString()}
+                            </div>
+                          </td>
+
+                          {/* Downloads */}
+                          <td style={{ padding: "10px 16px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "13px", color: "rgba(250,246,239,0.6)", fontFamily: "'Outfit', sans-serif" }}>
+                              <Download size={11} style={{ opacity: 0.5 }} />
+                              {(asset.downloads || 0).toLocaleString()}
+                            </div>
+                          </td>
+
+                          {/* Price */}
+                          <td style={{ padding: "10px 16px" }}>
+                            <div style={{ fontSize: "13px", fontWeight: 600, color: "#c8692e", fontFamily: "'Outfit', sans-serif" }}>
+                              ${asset.price_usd || 15}
+                            </div>
+                          </td>
+
+                          {/* Uploaded */}
+                          <td style={{ padding: "10px 16px" }}>
+                            <div style={{ fontSize: "12px", color: "rgba(250,246,239,0.35)", fontFamily: "'Outfit', sans-serif" }}>
+                              {formatDate(asset.created_at)}
+                            </div>
+                          </td>
+
+                          {/* Earned */}
+                          <td style={{ padding: "10px 16px" }}>
+                            <div style={{ fontSize: "13px", fontWeight: 600, color: earned > 0 ? "#2ecc71" : "rgba(250,246,239,0.2)", fontFamily: "'Outfit', sans-serif" }}>
+                              {earned > 0 ? `$${earned.toFixed(0)}` : "—"}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
         )}
 
-        {/* ── ANALYTICS ── */}
+        {/* ── ANALYTICS TAB ── */}
         {activeTab === "analytics" && (
-          <div className="animate-fade-in space-y-6">
-            <h2 className="text-lg font-semibold text-cream">Analytics</h2>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div>
+            <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: "26px", fontWeight: 700, color: "#faf6ef", marginBottom: "24px" }}>
+              Analytics
+            </h2>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "16px", marginBottom: "28px" }}>
               {[
-                { label: "Total Views", value: totalViews.toLocaleString(), period: "All time" },
-                { label: "Total Downloads", value: totalDownloads.toLocaleString(), period: "All time" },
-                { label: "Conversion Rate", value: totalViews > 0 ? `${((totalDownloads / totalViews) * 100).toFixed(1)}%` : "–", period: "Downloads / Views" },
-                { label: "Avg. per Asset", value: approvedAssets.length > 0 ? formatCurrency(profile.total_earnings / approvedAssets.length, "USD") : "–", period: "Revenue per asset" },
+                { label: "Total Views", value: totalViews.toLocaleString(), icon: Eye },
+                { label: "Total Downloads", value: totalDownloads.toLocaleString(), icon: Download },
+                { label: "Conversion Rate", value: totalViews > 0 ? `${((totalDownloads / totalViews) * 100).toFixed(1)}%` : "—", icon: TrendingUp },
+                { label: "Avg Revenue / Asset", value: approvedAssets.length > 0 ? formatCurrency((profile.total_earnings || 0) / approvedAssets.length, "USD") : "—", icon: DollarSign },
               ].map(stat => (
-                <div key={stat.label} className="card p-5">
-                  <p className="text-xs text-muted uppercase tracking-wider mb-2">{stat.label}</p>
-                  <p className="text-2xl font-bold text-cream">{stat.value}</p>
-                  <p className="text-xs text-muted mt-1">{stat.period}</p>
+                <div key={stat.label} style={{ background: "rgba(22,16,8,0.7)", border: "1px solid rgba(200,105,46,0.12)", borderRadius: "4px", padding: "20px" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
+                    <span style={{ fontSize: "11px", letterSpacing: "0.5px", textTransform: "uppercase", color: "rgba(250,246,239,0.35)", fontFamily: "'Outfit', sans-serif" }}>{stat.label}</span>
+                    <stat.icon size={14} style={{ color: "#c8692e", opacity: 0.7 }} />
+                  </div>
+                  <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: "28px", fontWeight: 700, color: "#faf6ef" }}>{stat.value}</div>
                 </div>
               ))}
             </div>
-            {/* Top performing assets */}
-            <div className="card p-5">
-              <h3 className="text-sm font-semibold text-cream mb-4">Top Performing Assets</h3>
-              <div className="space-y-3">
-                {[...approvedAssets].sort((a, b) => b.downloads - a.downloads).slice(0, 5).map(asset => (
-                  <div key={asset.id} className="flex items-center gap-3">
-                    <div className="relative w-10 h-10 rounded overflow-hidden shrink-0">
-                      <Image src={asset.thumbnail_url} alt={asset.title} fill className="object-cover" sizes="40px" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-xs font-medium text-cream line-clamp-1">{asset.title}</p>
-                      <div className="flex gap-3 text-[10px] text-muted mt-0.5">
-                        <span>{asset.downloads} downloads</span>
-                        <span>{asset.views} views</span>
-                      </div>
-                    </div>
-                    <span className="text-xs font-bold text-clay">${(asset.downloads * asset.price_usd * 0.65).toFixed(0)}</span>
+
+            {/* Top performers */}
+            <div style={{ background: "rgba(22,16,8,0.7)", border: "1px solid rgba(200,105,46,0.12)", borderRadius: "4px", padding: "20px" }}>
+              <h3 style={{ fontSize: "14px", fontWeight: 600, color: "#faf6ef", fontFamily: "'Outfit', sans-serif", marginBottom: "16px" }}>
+                Top Performing Assets
+              </h3>
+              {[...approvedAssets].sort((a, b) => (b.downloads || 0) - (a.downloads || 0)).slice(0, 5).map((asset, i) => (
+                <div key={asset.id} style={{ display: "flex", alignItems: "center", gap: "14px", padding: "10px 0", borderBottom: i < 4 ? "1px solid rgba(200,105,46,0.07)" : "none" }}>
+                  <div style={{ fontSize: "16px", fontFamily: "'Cormorant Garamond', serif", fontWeight: 700, color: "rgba(250,246,239,0.2)", width: "20px" }}>
+                    {i + 1}
                   </div>
-                ))}
-              </div>
+                  <div style={{ width: "40px", height: "30px", borderRadius: "2px", overflow: "hidden", background: "rgba(250,246,239,0.05)", position: "relative", flexShrink: 0 }}>
+                    {asset.thumbnail_url && <Image src={asset.thumbnail_url} alt={asset.title} fill style={{ objectFit: "cover" }} sizes="40px" />}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: "13px", fontWeight: 500, color: "#faf6ef", fontFamily: "'Outfit', sans-serif" }}>{asset.title}</div>
+                    <div style={{ fontSize: "11px", color: "rgba(250,246,239,0.3)", fontFamily: "'Outfit', sans-serif" }}>{asset.downloads || 0} downloads · {asset.views || 0} views</div>
+                  </div>
+                  <div style={{ fontSize: "14px", fontWeight: 700, color: "#c8692e", fontFamily: "'Outfit', sans-serif" }}>
+                    ${((asset.downloads || 0) * (asset.price_usd || 15) * 0.65).toFixed(0)}
+                  </div>
+                </div>
+              ))}
+              {approvedAssets.length === 0 && (
+                <p style={{ fontSize: "13px", color: "rgba(250,246,239,0.3)", textAlign: "center", padding: "20px 0", fontFamily: "'Outfit', sans-serif" }}>
+                  No approved assets yet
+                </p>
+              )}
             </div>
           </div>
         )}
 
-        {/* ── FINANCE ── */}
+        {/* ── FINANCE TAB ── */}
         {activeTab === "finance" && (
-          <div className="animate-fade-in space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-cream">Finance</h2>
-              {profile.available_balance > 0 && (
-                <button onClick={() => setShowWithdraw(true)} className="btn-primary text-xs px-4 py-2">
-                  Withdraw Funds
+          <div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "24px" }}>
+              <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: "26px", fontWeight: 700, color: "#faf6ef" }}>
+                Finance
+              </h2>
+              {(profile.available_balance || 0) > 0 && (
+                <button onClick={() => setShowWithdraw(true)} style={{
+                  display: "flex", alignItems: "center", gap: "7px", padding: "10px 20px",
+                  background: "rgba(46,204,113,0.1)", border: "1px solid rgba(46,204,113,0.3)",
+                  borderRadius: "3px", color: "#2ecc71", fontFamily: "'Outfit', sans-serif",
+                  fontSize: "13px", fontWeight: 600, cursor: "pointer",
+                }}>
+                  <DollarSign size={13} /> Withdraw {formatCurrency(profile.available_balance, "USD")}
                 </button>
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="card p-5">
-                <p className="text-xs text-muted uppercase tracking-wider mb-2">Available Balance</p>
-                <p className="text-3xl font-bold text-green-400">{formatCurrency(profile.available_balance, "USD")}</p>
-              </div>
-              <div className="card p-5">
-                <p className="text-xs text-muted uppercase tracking-wider mb-2">Total Earned</p>
-                <p className="text-3xl font-bold text-cream">{formatCurrency(profile.total_earnings, "USD")}</p>
-              </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px", marginBottom: "28px" }}>
+              {[
+                { label: "Available Balance", value: formatCurrency(profile.available_balance || 0, "USD"), color: "#2ecc71" },
+                { label: "Total Earned", value: formatCurrency(profile.total_earnings || 0, "USD"), color: "#faf6ef" },
+                { label: "Pending Clearance", value: formatCurrency(profile.pending_earnings || 0, "USD"), color: "#d4a853" },
+              ].map(stat => (
+                <div key={stat.label} style={{ background: "rgba(22,16,8,0.7)", border: "1px solid rgba(200,105,46,0.12)", borderRadius: "4px", padding: "24px" }}>
+                  <div style={{ fontSize: "11px", letterSpacing: "0.5px", textTransform: "uppercase", color: "rgba(250,246,239,0.35)", fontFamily: "'Outfit', sans-serif", marginBottom: "10px" }}>
+                    {stat.label}
+                  </div>
+                  <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: "32px", fontWeight: 700, color: stat.color }}>
+                    {stat.value}
+                  </div>
+                </div>
+              ))}
             </div>
 
-            {/* Earnings history */}
-            <div className="card p-5">
-              <h3 className="text-sm font-semibold text-cream mb-4">Earnings History</h3>
+            {/* Recent sales */}
+            <div style={{ background: "rgba(22,16,8,0.7)", border: "1px solid rgba(200,105,46,0.12)", borderRadius: "4px", overflow: "hidden" }}>
+              <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(200,105,46,0.1)" }}>
+                <h3 style={{ fontSize: "14px", fontWeight: 600, color: "#faf6ef", fontFamily: "'Outfit', sans-serif" }}>Earnings History</h3>
+              </div>
               {earnings.length === 0 ? (
-                <p className="text-sm text-muted text-center py-6">No earnings yet</p>
-              ) : (
-                <div className="space-y-2">
-                  {earnings.map((e: any, i: number) => (
-                    <div key={i} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-                      <div>
-                        <p className="text-xs font-medium text-cream">License sale</p>
-                        <p className="text-[10px] text-muted">{formatDate(e.created_at)}</p>
-                      </div>
-                      <span className="text-sm font-bold text-green-400">
-                        +{formatCurrency(e.net_amount, e.currency || "USD")}
-                      </span>
-                    </div>
-                  ))}
+                <div style={{ padding: "40px", textAlign: "center" }}>
+                  <p style={{ fontSize: "13px", color: "rgba(250,246,239,0.3)", fontFamily: "'Outfit', sans-serif" }}>No earnings yet — keep uploading!</p>
                 </div>
+              ) : (
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid rgba(200,105,46,0.1)" }}>
+                      {["Date", "Type", "Amount"].map(h => (
+                        <th key={h} style={{ padding: "10px 20px", textAlign: "left", fontSize: "11px", fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase", color: "rgba(250,246,239,0.3)", fontFamily: "'Outfit', sans-serif", background: "rgba(10,8,5,0.5)" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {earnings.map((e: any, i: number) => (
+                      <tr key={i} style={{ borderBottom: i < earnings.length - 1 ? "1px solid rgba(200,105,46,0.06)" : "none" }}>
+                        <td style={{ padding: "12px 20px", fontSize: "13px", color: "rgba(250,246,239,0.5)", fontFamily: "'Outfit', sans-serif" }}>{formatDate(e.created_at)}</td>
+                        <td style={{ padding: "12px 20px", fontSize: "13px", color: "rgba(250,246,239,0.5)", fontFamily: "'Outfit', sans-serif" }}>License sale</td>
+                        <td style={{ padding: "12px 20px", fontSize: "14px", fontWeight: 700, color: "#2ecc71", fontFamily: "'Outfit', sans-serif" }}>+{formatCurrency(e.net_amount, e.currency || "USD")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               )}
             </div>
           </div>
