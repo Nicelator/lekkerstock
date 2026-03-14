@@ -37,7 +37,7 @@ export function StudioClient({ profile, assets, earnings, recentSales }: Props) 
   ];
 
   return (
-    <div className="min-h-screen bg-bg">
+    <div className="min-h-screen bg-bg pt-16">
       {/* Studio header */}
       <div className="border-b border-border bg-[#0a0805]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
