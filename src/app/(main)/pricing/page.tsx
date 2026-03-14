@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { cn, formatCurrency } from "@/lib/utils";
+import { formatCurrency } from "@/lib/utils";
 import { Check, Minus } from "lucide-react";
 import { toast } from "sonner";
 import { analytics } from "@/lib/posthog";
@@ -53,6 +53,7 @@ const CONTRIBUTOR_PLANS = [
     features: ["60% royalty rate", "Up to 50 uploads", "Standard review queue"],
     unavailable: ["Analytics dashboard", "Priority review", "Featured placement"],
     highlighted: false,
+    invite: false,
   },
   {
     key: "contributor_pro",
@@ -63,6 +64,7 @@ const CONTRIBUTOR_PLANS = [
     features: ["65% royalty rate", "Unlimited uploads", "Analytics dashboard", "Priority review"],
     unavailable: ["Featured placement", "Dedicated manager"],
     highlighted: true,
+    invite: false,
   },
   {
     key: null,
@@ -123,101 +125,256 @@ export default function PricingPage() {
   };
 
   return (
-    <div className="min-h-screen bg-bg px-4 sm:px-6 lg:px-8 py-20">
-      <div className="text-center max-w-2xl mx-auto mb-16">
-        <p className="section-tag mb-3">Transparent Pricing</p>
-        <h1 className="font-serif text-5xl md:text-6xl font-bold leading-tight mb-4">
-          Simple, <em className="italic text-clay">honest</em> pricing
+    <div style={{
+      minHeight: "100vh",
+      background: "#0e0b08",
+      padding: "96px 24px 80px",
+    }}>
+      {/* Header */}
+      <div style={{ textAlign: "center", maxWidth: "640px", margin: "0 auto 64px" }}>
+        <div style={{
+          fontSize: "11px", letterSpacing: "3px", textTransform: "uppercase",
+          color: "#c8692e", marginBottom: "16px", fontWeight: 600,
+          fontFamily: "'Outfit', sans-serif",
+        }}>
+          Transparent Pricing
+        </div>
+        <h1 style={{
+          fontFamily: "'Cormorant Garamond', serif",
+          fontSize: "clamp(40px, 6vw, 64px)",
+          fontWeight: 700, lineHeight: 1.05,
+          color: "#faf6ef", marginBottom: "16px", letterSpacing: "-1px",
+        }}>
+          Simple, <em style={{ fontStyle: "italic", color: "#c8692e" }}>honest</em> pricing
         </h1>
-        <p className="text-muted text-lg leading-relaxed">
+        <p style={{
+          color: "rgba(250,246,239,0.45)", fontSize: "16px",
+          lineHeight: 1.7, fontFamily: "'Outfit', sans-serif",
+        }}>
           No hidden fees. Cancel or upgrade anytime.
         </p>
       </div>
 
-      <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-12">
-        <div className="flex border border-border rounded overflow-hidden">
-          {(["buyer", "contributor"] as Tab[]).map(t => (
-            <button key={t} onClick={() => setTab(t)}
-              className={cn("px-6 py-2.5 text-sm font-semibold tracking-wide uppercase transition-colors",
-                tab === t ? "bg-clay text-white" : "text-muted hover:text-cream")}>
+      {/* Toggles */}
+      <div style={{
+        display: "flex", flexDirection: "column", alignItems: "center",
+        gap: "16px", marginBottom: "48px",
+      }}>
+        {/* Tab toggle */}
+        <div style={{
+          display: "flex", border: "1px solid rgba(200,105,46,0.2)",
+          borderRadius: "3px", overflow: "hidden",
+        }}>
+          {(["buyer", "contributor"] as Tab[]).map((t) => (
+            <button key={t} onClick={() => setTab(t)} style={{
+              padding: "10px 28px", fontSize: "12px", fontWeight: 600,
+              letterSpacing: "1px", textTransform: "uppercase",
+              fontFamily: "'Outfit', sans-serif", cursor: "pointer",
+              border: "none", transition: "all 0.2s",
+              background: tab === t ? "#c8692e" : "transparent",
+              color: tab === t ? "white" : "rgba(250,246,239,0.45)",
+            }}>
               {t === "buyer" ? "Buyers" : "Contributors"}
             </button>
           ))}
         </div>
-        <div className="flex border border-border rounded overflow-hidden">
-          {(["USD", "NGN"] as Currency[]).map(c => (
-            <button key={c} onClick={() => setCurrency(c)}
-              className={cn("px-5 py-2.5 text-sm font-semibold transition-colors",
-                currency === c ? "bg-subtle text-cream" : "text-muted hover:text-cream")}>
+
+        {/* Currency toggle */}
+        <div style={{
+          display: "flex", border: "1px solid rgba(200,105,46,0.2)",
+          borderRadius: "3px", overflow: "hidden",
+        }}>
+          {(["USD", "NGN"] as Currency[]).map((c) => (
+            <button key={c} onClick={() => setCurrency(c)} style={{
+              padding: "8px 20px", fontSize: "12px", fontWeight: 600,
+              fontFamily: "'Outfit', sans-serif", cursor: "pointer",
+              border: "none", transition: "all 0.2s",
+              background: currency === c ? "rgba(250,246,239,0.08)" : "transparent",
+              color: currency === c ? "#faf6ef" : "rgba(250,246,239,0.4)",
+            }}>
               {c === "USD" ? "$ USD" : "₦ NGN"}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-5">
-        {plans.map(plan => (
-          <div key={plan.name} className={cn(
-            "relative flex flex-col border rounded-xl p-7 transition-all",
-            plan.highlighted ? "border-clay bg-clay/5 shadow-[0_0_40px_rgba(200,105,46,0.1)]" : "border-border bg-subtle hover:border-clay/30"
-          )}>
+      {/* Plans grid */}
+      <div style={{
+        maxWidth: "960px", margin: "0 auto",
+        display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+        gap: "20px",
+      }}>
+        {plans.map((plan) => (
+          <div key={plan.name} style={{
+            position: "relative", display: "flex", flexDirection: "column",
+            border: `1px solid ${plan.highlighted ? "#c8692e" : "rgba(200,105,46,0.12)"}`,
+            borderRadius: "8px", padding: "28px",
+            background: plan.highlighted ? "rgba(200,105,46,0.05)" : "rgba(250,246,239,0.02)",
+            boxShadow: plan.highlighted ? "0 0 40px rgba(200,105,46,0.08)" : "none",
+            transition: "border-color 0.2s",
+          }}>
+            {/* Popular badge */}
             {plan.highlighted && (
-              <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-4 py-1 bg-clay text-white text-[10px] font-bold tracking-widest uppercase rounded-full">
+              <div style={{
+                position: "absolute", top: "-14px", left: "50%",
+                transform: "translateX(-50%)",
+                padding: "4px 16px", background: "#c8692e",
+                color: "white", fontSize: "10px", fontWeight: 700,
+                letterSpacing: "2px", textTransform: "uppercase",
+                borderRadius: "99px", fontFamily: "'Outfit', sans-serif",
+                whiteSpace: "nowrap",
+              }}>
                 Most Popular
               </div>
             )}
-            <div className="mb-6">
-              <p className="text-xs font-bold tracking-widest uppercase text-clay mb-2">{plan.name}</p>
-              <div className="mb-3">
-                {(plan as any).invite ? (
-                  <div className="font-serif text-3xl font-bold text-cream">Invite only</div>
+
+            {/* Plan header */}
+            <div style={{ marginBottom: "24px" }}>
+              <div style={{
+                fontSize: "11px", fontWeight: 700, letterSpacing: "2px",
+                textTransform: "uppercase", color: "#c8692e",
+                marginBottom: "12px", fontFamily: "'Outfit', sans-serif",
+              }}>
+                {plan.name}
+              </div>
+
+              <div style={{ marginBottom: "12px" }}>
+                {plan.invite ? (
+                  <div style={{
+                    fontFamily: "'Cormorant Garamond', serif",
+                    fontSize: "32px", fontWeight: 700, color: "#faf6ef",
+                  }}>
+                    Invite only
+                  </div>
                 ) : plan.priceUSD === 0 ? (
-                  <div className="font-serif text-5xl font-bold text-cream">Free</div>
+                  <div style={{
+                    fontFamily: "'Cormorant Garamond', serif",
+                    fontSize: "52px", fontWeight: 700, color: "#faf6ef",
+                  }}>
+                    Free
+                  </div>
                 ) : (
-                  <div className="font-serif text-5xl font-bold text-cream">
-                    {currency === "USD" ? `$${plan.priceUSD}` : `₦${(plan.priceNGN || 0).toLocaleString()}`}
-                    <span className="text-base font-sans font-normal text-muted">/mo</span>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: "4px" }}>
+                    <span style={{
+                      fontFamily: "'Cormorant Garamond', serif",
+                      fontSize: "52px", fontWeight: 700, color: "#faf6ef",
+                    }}>
+                      {currency === "USD"
+                        ? `$${plan.priceUSD}`
+                        : `₦${(plan.priceNGN || 0).toLocaleString()}`}
+                    </span>
+                    <span style={{
+                      fontSize: "14px", color: "rgba(250,246,239,0.4)",
+                      fontFamily: "'Outfit', sans-serif",
+                    }}>
+                      /mo
+                    </span>
                   </div>
                 )}
               </div>
-              <p className="text-sm text-muted leading-relaxed">{plan.desc}</p>
+
+              <p style={{
+                fontSize: "13px", color: "rgba(250,246,239,0.45)",
+                lineHeight: 1.6, fontFamily: "'Outfit', sans-serif",
+              }}>
+                {plan.desc}
+              </p>
             </div>
-            <div className="flex flex-col gap-2.5 flex-1 mb-8">
-              {plan.features.map(f => (
-                <div key={f} className="flex items-start gap-2.5 text-sm text-cream/80">
-                  <Check size={14} className="text-clay shrink-0 mt-0.5" />{f}
+
+            {/* Features */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", flex: 1, marginBottom: "28px" }}>
+              {plan.features.map((f) => (
+                <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
+                  <div style={{ color: "#c8692e", flexShrink: 0, marginTop: "2px" }}>
+                    <Check size={13} />
+                  </div>
+                  <span style={{
+                    fontSize: "13px", color: "rgba(250,246,239,0.8)",
+                    fontFamily: "'Outfit', sans-serif", lineHeight: 1.5,
+                  }}>
+                    {f}
+                  </span>
                 </div>
               ))}
-              {plan.unavailable.map(f => (
-                <div key={f} className="flex items-start gap-2.5 text-sm text-muted/40">
-                  <Minus size={14} className="shrink-0 mt-0.5" />{f}
+              {plan.unavailable.map((f) => (
+                <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
+                  <div style={{ color: "rgba(250,246,239,0.2)", flexShrink: 0, marginTop: "2px" }}>
+                    <Minus size={13} />
+                  </div>
+                  <span style={{
+                    fontSize: "13px", color: "rgba(250,246,239,0.2)",
+                    fontFamily: "'Outfit', sans-serif", lineHeight: 1.5,
+                  }}>
+                    {f}
+                  </span>
                 </div>
               ))}
             </div>
+
+            {/* CTA */}
             <button
               onClick={() => handleSelect(plan.key, plan.priceUSD)}
-              disabled={loading === plan.key || (plan as any).invite}
-              className={cn(
-                "w-full py-3 rounded text-sm font-semibold tracking-wide uppercase transition-all",
-                (plan as any).invite ? "border border-border text-muted/40 cursor-not-allowed" :
-                plan.highlighted ? "bg-clay text-white hover:bg-clay-dark" :
-                "border border-clay text-clay hover:bg-clay hover:text-white"
-              )}>
+              disabled={loading === plan.key || plan.invite}
+              style={{
+                width: "100%", padding: "13px",
+                borderRadius: "3px", fontSize: "12px", fontWeight: 700,
+                letterSpacing: "1px", textTransform: "uppercase",
+                fontFamily: "'Outfit', sans-serif", cursor: plan.invite ? "not-allowed" : "pointer",
+                transition: "all 0.2s",
+                background: plan.invite ? "transparent"
+                  : plan.highlighted ? "#c8692e" : "transparent",
+                color: plan.invite ? "rgba(250,246,239,0.2)"
+                  : plan.highlighted ? "white" : "#c8692e",
+                border: plan.invite ? "1px solid rgba(250,246,239,0.1)"
+                  : plan.highlighted ? "none" : "1px solid #c8692e",
+                opacity: loading === plan.key ? 0.7 : 1,
+              }}
+              onMouseEnter={(e) => {
+                if (!plan.invite && !plan.highlighted) {
+                  (e.currentTarget as HTMLElement).style.background = "#c8692e";
+                  (e.currentTarget as HTMLElement).style.color = "white";
+                }
+                if (plan.highlighted && !plan.invite) {
+                  (e.currentTarget as HTMLElement).style.background = "#e8843a";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!plan.invite && !plan.highlighted) {
+                  (e.currentTarget as HTMLElement).style.background = "transparent";
+                  (e.currentTarget as HTMLElement).style.color = "#c8692e";
+                }
+                if (plan.highlighted && !plan.invite) {
+                  (e.currentTarget as HTMLElement).style.background = "#c8692e";
+                }
+              }}
+            >
               {loading === plan.key ? (
-                <span className="flex items-center justify-center gap-2">
-                  <div className="w-4 h-4 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+                <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                  <div style={{
+                    width: "14px", height: "14px",
+                    border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "white",
+                    borderRadius: "50%", animation: "spin 0.7s linear infinite",
+                  }} />
                   Loading...
                 </span>
-              ) : (plan as any).invite ? "By Invitation" :
-                plan.priceUSD === 0 ? "Get Started Free" : `Get ${plan.name}`}
+              ) : plan.invite ? "By Invitation"
+                : plan.priceUSD === 0 ? "Get Started Free"
+                : `Get ${plan.name}`}
             </button>
           </div>
         ))}
       </div>
 
-      <p className="text-center text-xs text-muted/40 mt-10">
+      {/* Footer note */}
+      <p style={{
+        textAlign: "center", fontSize: "11px",
+        color: "rgba(250,246,239,0.2)", marginTop: "40px",
+        fontFamily: "'Outfit', sans-serif", letterSpacing: "0.5px",
+      }}>
         All prices in USD or NGN · Subscriptions auto-renew monthly · Cancel anytime · Secure payments via Paystack
       </p>
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
