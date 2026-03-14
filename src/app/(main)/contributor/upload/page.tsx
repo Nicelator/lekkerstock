@@ -113,7 +113,7 @@ export default function UploadPage() {
   const pendingCount = files.filter(f => f.status === "idle").length;
 
   return (
-    <div className="min-h-screen bg-bg max-w-5xl mx-auto px-4 sm:px-6 py-10">
+    <div className="min-h-screen bg-bg max-w-5xl mx-auto px-4 sm:px-6 py-10" style={{ paddingTop: "96px" }}>
       <div className="mb-8">
         <h1 className="font-serif text-4xl font-bold text-cream mb-2">Upload Content</h1>
         <p className="text-muted text-sm">Photos, videos, illustrations and 3D assets. All files are reviewed before going live.</p>
