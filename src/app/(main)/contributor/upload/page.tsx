@@ -28,6 +28,47 @@ const TYPE_OPTIONS: { value: AssetType; label: string }[] = [
   { value: "3d", label: "3D Asset" },
 ];
 
+// ── Compress image using Canvas API ──
+async function compressImage(file: File, maxWidth = 1200, quality = 0.82): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+
+      let { width, height } = img;
+
+      // Scale down if wider than maxWidth
+      if (width > maxWidth) {
+        height = Math.round((height * maxWidth) / width);
+        width = maxWidth;
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { reject(new Error("Canvas not supported")); return; }
+
+      ctx.drawImage(img, 0, 0, width, height);
+
+      canvas.toBlob(
+        (blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error("Compression failed"));
+        },
+        "image/jpeg",
+        quality
+      );
+    };
+
+    img.onerror = () => reject(new Error("Image load failed"));
+    img.src = objectUrl;
+  });
+}
+
 export default function UploadPage() {
   const router = useRouter();
   const [files, setFiles] = useState<UploadFile[]>([]);
@@ -75,7 +116,6 @@ export default function UploadPage() {
     setUploading(true);
     const supabase = createClient();
 
-    // Get current user profile
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { toast.error("Please sign in"); setUploading(false); return; }
 
@@ -97,49 +137,73 @@ export default function UploadPage() {
       const f = files[i];
       if (f.status !== "idle") continue;
 
-      updateFile(i, { status: "uploading", progress: 10 });
+      updateFile(i, { status: "uploading", progress: 5 });
 
       try {
-        const ext = f.file.name.split(".").pop()?.toLowerCase();
+        const ext = f.file.name.split(".").pop()?.toLowerCase() || "jpg";
         const timestamp = Date.now();
         const basePath = `${profile.id}/${timestamp}`;
+        const isImage = f.file.type.startsWith("image/");
 
-        // Upload file directly to Supabase Storage
-        updateFile(i, { progress: 30 });
-        const { error: uploadError } = await supabase.storage
+        // ── Step 1: Upload original file ──
+        updateFile(i, { progress: 15 });
+        const { error: origError } = await supabase.storage
           .from("assets")
           .upload(`${basePath}/original.${ext}`, f.file, {
             contentType: f.file.type,
             upsert: false,
           });
+        if (origError) throw origError;
 
-        if (uploadError) throw uploadError;
-
-        updateFile(i, { progress: 70 });
-
-        // Get public URL
         const { data: { publicUrl: fileUrl } } = supabase.storage
           .from("assets")
           .getPublicUrl(`${basePath}/original.${ext}`);
 
-        // For images, also upload as preview
+        updateFile(i, { progress: 50 });
+
+        // ── Step 2: Compress & upload preview (images only) ──
         let previewUrl = fileUrl;
-        if (f.file.type.startsWith("image/")) {
-          await supabase.storage
+        let thumbnailUrl = fileUrl;
+
+        if (isImage) {
+          updateFile(i, { progress: 55 });
+
+          // Compressed preview — max 1200px, 82% quality
+          const previewBlob = await compressImage(f.file, 1200, 0.82);
+          const { error: previewError } = await supabase.storage
             .from("previews")
-            .upload(`${basePath}/preview.${ext}`, f.file, {
-              contentType: f.file.type,
+            .upload(`${basePath}/preview.jpg`, previewBlob, {
+              contentType: "image/jpeg",
               upsert: false,
             });
-          const { data: { publicUrl } } = supabase.storage
+          if (previewError) throw previewError;
+
+          const { data: { publicUrl: pUrl } } = supabase.storage
             .from("previews")
-            .getPublicUrl(`${basePath}/preview.${ext}`);
-          previewUrl = publicUrl;
+            .getPublicUrl(`${basePath}/preview.jpg`);
+          previewUrl = pUrl;
+
+          updateFile(i, { progress: 75 });
+
+          // Thumbnail — max 400px, 75% quality
+          const thumbBlob = await compressImage(f.file, 400, 0.75);
+          const { error: thumbError } = await supabase.storage
+            .from("previews")
+            .upload(`${basePath}/thumb.jpg`, thumbBlob, {
+              contentType: "image/jpeg",
+              upsert: false,
+            });
+          if (thumbError) throw thumbError;
+
+          const { data: { publicUrl: tUrl } } = supabase.storage
+            .from("previews")
+            .getPublicUrl(`${basePath}/thumb.jpg`);
+          thumbnailUrl = tUrl;
         }
 
-        updateFile(i, { progress: 85 });
+        updateFile(i, { progress: 88 });
 
-        // Save metadata to database
+        // ── Step 3: Save to database ──
         const { error: dbError } = await supabase
           .from("assets")
           .insert({
@@ -151,7 +215,7 @@ export default function UploadPage() {
             status: "pending",
             file_url: fileUrl,
             preview_url: previewUrl,
-            thumbnail_url: previewUrl,
+            thumbnail_url: thumbnailUrl,
             file_size: f.file.size,
             is_editorial: false,
             price_usd: 15,
@@ -201,11 +265,8 @@ export default function UploadPage() {
         {...getRootProps()}
         style={{
           border: `2px dashed ${isDragActive ? "#c8692e" : "rgba(200,105,46,0.25)"}`,
-          borderRadius: "6px",
-          padding: "48px 24px",
-          textAlign: "center",
-          cursor: "pointer",
-          marginBottom: "24px",
+          borderRadius: "6px", padding: "48px 24px", textAlign: "center",
+          cursor: "pointer", marginBottom: "24px",
           background: isDragActive ? "rgba(200,105,46,0.06)" : "transparent",
           transition: "all 0.2s",
         }}
@@ -219,7 +280,7 @@ export default function UploadPage() {
           or click to browse
         </p>
         <p style={{ fontSize: "11px", color: "rgba(250,246,239,0.2)", fontFamily: "'Outfit', sans-serif" }}>
-          JPG, PNG, WebP, TIFF, MP4, MOV · Max 500MB per file
+          JPG, PNG, WebP, TIFF, MP4, MOV · Max 500MB per file · Previews auto-compressed
         </p>
       </div>
 
@@ -229,9 +290,13 @@ export default function UploadPage() {
           {files.map((f, i) => (
             <div key={i} style={{
               background: "rgba(22,16,8,0.7)",
-              border: `1px solid ${f.status === "done" ? "rgba(46,204,113,0.3)" : f.status === "error" ? "rgba(231,76,60,0.3)" : f.status === "uploading" ? "rgba(200,105,46,0.3)" : "rgba(200,105,46,0.12)"}`,
-              borderRadius: "4px",
-              padding: "16px",
+              border: `1px solid ${
+                f.status === "done" ? "rgba(46,204,113,0.3)" :
+                f.status === "error" ? "rgba(231,76,60,0.3)" :
+                f.status === "uploading" ? "rgba(200,105,46,0.3)" :
+                "rgba(200,105,46,0.12)"
+              }`,
+              borderRadius: "4px", padding: "16px",
             }}>
               <div style={{ display: "flex", gap: "16px" }}>
                 {/* Preview */}
@@ -262,96 +327,48 @@ export default function UploadPage() {
                 {/* Fields */}
                 <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                   <div>
-                    <label style={{ display: "block", fontSize: "10px", fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase", color: "rgba(250,246,239,0.4)", marginBottom: "6px", fontFamily: "'Outfit', sans-serif" }}>
-                      Title *
-                    </label>
-                    <input
-                      value={f.title}
-                      onChange={e => updateFile(i, { title: e.target.value })}
-                      disabled={f.status !== "idle"}
-                      placeholder="Give your asset a title"
-                      style={{
-                        width: "100%", padding: "8px 12px",
-                        background: "rgba(250,246,239,0.05)", border: "1px solid rgba(200,105,46,0.15)",
-                        borderRadius: "3px", color: "#faf6ef", fontFamily: "'Outfit', sans-serif",
-                        fontSize: "13px", outline: "none", boxSizing: "border-box",
-                      }}
+                    <label style={{ display: "block", fontSize: "10px", fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase", color: "rgba(250,246,239,0.4)", marginBottom: "6px", fontFamily: "'Outfit', sans-serif" }}>Title *</label>
+                    <input value={f.title} onChange={e => updateFile(i, { title: e.target.value })}
+                      disabled={f.status !== "idle"} placeholder="Give your asset a title"
+                      style={{ width: "100%", padding: "8px 12px", background: "rgba(250,246,239,0.05)", border: "1px solid rgba(200,105,46,0.15)", borderRadius: "3px", color: "#faf6ef", fontFamily: "'Outfit', sans-serif", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
                       onFocus={e => { e.target.style.borderColor = "#c8692e"; }}
                       onBlur={e => { e.target.style.borderColor = "rgba(200,105,46,0.15)"; }}
                     />
                   </div>
-
                   <div>
-                    <label style={{ display: "block", fontSize: "10px", fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase", color: "rgba(250,246,239,0.4)", marginBottom: "6px", fontFamily: "'Outfit', sans-serif" }}>
-                      Type
-                    </label>
+                    <label style={{ display: "block", fontSize: "10px", fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase", color: "rgba(250,246,239,0.4)", marginBottom: "6px", fontFamily: "'Outfit', sans-serif" }}>Type</label>
                     <div style={{ display: "flex", gap: "4px" }}>
                       {TYPE_OPTIONS.map(({ value, label }) => (
-                        <button key={value} type="button"
-                          disabled={f.status !== "idle"}
+                        <button key={value} type="button" disabled={f.status !== "idle"}
                           onClick={() => updateFile(i, { type: value })}
-                          style={{
-                            flex: 1, padding: "7px 4px", borderRadius: "3px",
-                            fontSize: "10px", fontWeight: 600, letterSpacing: "0.5px",
-                            textTransform: "uppercase", cursor: "pointer", border: "none",
-                            fontFamily: "'Outfit', sans-serif", transition: "all 0.2s",
-                            background: f.type === value ? "#c8692e" : "rgba(250,246,239,0.06)",
-                            color: f.type === value ? "white" : "rgba(250,246,239,0.4)",
-                          }}
-                        >
-                          {label}
-                        </button>
+                          style={{ flex: 1, padding: "7px 4px", borderRadius: "3px", fontSize: "10px", fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase", cursor: "pointer", border: "none", fontFamily: "'Outfit', sans-serif", transition: "all 0.2s", background: f.type === value ? "#c8692e" : "rgba(250,246,239,0.06)", color: f.type === value ? "white" : "rgba(250,246,239,0.4)" }}
+                        >{label}</button>
                       ))}
                     </div>
                   </div>
-
                   <div>
-                    <label style={{ display: "block", fontSize: "10px", fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase", color: "rgba(250,246,239,0.4)", marginBottom: "6px", fontFamily: "'Outfit', sans-serif" }}>
-                      Tags (comma separated)
-                    </label>
-                    <input
-                      value={f.tags}
-                      onChange={e => updateFile(i, { tags: e.target.value })}
-                      disabled={f.status !== "idle"}
-                      placeholder="Lagos, Nigeria, street, urban"
-                      style={{
-                        width: "100%", padding: "8px 12px",
-                        background: "rgba(250,246,239,0.05)", border: "1px solid rgba(200,105,46,0.15)",
-                        borderRadius: "3px", color: "#faf6ef", fontFamily: "'Outfit', sans-serif",
-                        fontSize: "13px", outline: "none", boxSizing: "border-box",
-                      }}
+                    <label style={{ display: "block", fontSize: "10px", fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase", color: "rgba(250,246,239,0.4)", marginBottom: "6px", fontFamily: "'Outfit', sans-serif" }}>Tags (comma separated)</label>
+                    <input value={f.tags} onChange={e => updateFile(i, { tags: e.target.value })}
+                      disabled={f.status !== "idle"} placeholder="Lagos, Nigeria, street, urban"
+                      style={{ width: "100%", padding: "8px 12px", background: "rgba(250,246,239,0.05)", border: "1px solid rgba(200,105,46,0.15)", borderRadius: "3px", color: "#faf6ef", fontFamily: "'Outfit', sans-serif", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
                       onFocus={e => { e.target.style.borderColor = "#c8692e"; }}
                       onBlur={e => { e.target.style.borderColor = "rgba(200,105,46,0.15)"; }}
                     />
                   </div>
-
                   <div>
-                    <label style={{ display: "block", fontSize: "10px", fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase", color: "rgba(250,246,239,0.4)", marginBottom: "6px", fontFamily: "'Outfit', sans-serif" }}>
-                      Description (optional)
-                    </label>
-                    <input
-                      value={f.description}
-                      onChange={e => updateFile(i, { description: e.target.value })}
-                      disabled={f.status !== "idle"}
-                      placeholder="Brief description..."
-                      style={{
-                        width: "100%", padding: "8px 12px",
-                        background: "rgba(250,246,239,0.05)", border: "1px solid rgba(200,105,46,0.15)",
-                        borderRadius: "3px", color: "#faf6ef", fontFamily: "'Outfit', sans-serif",
-                        fontSize: "13px", outline: "none", boxSizing: "border-box",
-                      }}
+                    <label style={{ display: "block", fontSize: "10px", fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase", color: "rgba(250,246,239,0.4)", marginBottom: "6px", fontFamily: "'Outfit', sans-serif" }}>Description (optional)</label>
+                    <input value={f.description} onChange={e => updateFile(i, { description: e.target.value })}
+                      disabled={f.status !== "idle"} placeholder="Brief description..."
+                      style={{ width: "100%", padding: "8px 12px", background: "rgba(250,246,239,0.05)", border: "1px solid rgba(200,105,46,0.15)", borderRadius: "3px", color: "#faf6ef", fontFamily: "'Outfit', sans-serif", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
                       onFocus={e => { e.target.style.borderColor = "#c8692e"; }}
                       onBlur={e => { e.target.style.borderColor = "rgba(200,105,46,0.15)"; }}
                     />
                   </div>
                 </div>
 
-                {/* Remove button */}
-                <button onClick={() => removeFile(i)} disabled={f.status === "uploading"} style={{
-                  background: "none", border: "none", cursor: "pointer",
-                  color: "rgba(250,246,239,0.3)", alignSelf: "flex-start", padding: "2px",
-                  transition: "color 0.2s",
-                }}
+                {/* Remove */}
+                <button onClick={() => removeFile(i)} disabled={f.status === "uploading"}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(250,246,239,0.3)", alignSelf: "flex-start", padding: "2px", transition: "color 0.2s" }}
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "#e74c3c"; }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "rgba(250,246,239,0.3)"; }}
                 >
@@ -361,8 +378,13 @@ export default function UploadPage() {
 
               {/* Progress bar */}
               {f.status === "uploading" && (
-                <div style={{ marginTop: "12px", height: "3px", background: "rgba(200,105,46,0.15)", borderRadius: "99px", overflow: "hidden" }}>
-                  <div style={{ height: "100%", background: "#c8692e", borderRadius: "99px", width: `${f.progress}%`, transition: "width 0.3s" }} />
+                <div style={{ marginTop: "12px" }}>
+                  <div style={{ height: "3px", background: "rgba(200,105,46,0.15)", borderRadius: "99px", overflow: "hidden" }}>
+                    <div style={{ height: "100%", background: "#c8692e", borderRadius: "99px", width: `${f.progress}%`, transition: "width 0.4s ease" }} />
+                  </div>
+                  <div style={{ fontSize: "10px", color: "rgba(250,246,239,0.3)", fontFamily: "'Outfit', sans-serif", marginTop: "4px" }}>
+                    {f.progress < 50 ? "Uploading original..." : f.progress < 80 ? "Generating preview & thumbnail..." : "Saving..."}
+                  </div>
                 </div>
               )}
 
@@ -398,7 +420,7 @@ export default function UploadPage() {
               padding: "10px 20px", background: "transparent",
               border: "1px solid rgba(200,105,46,0.2)", borderRadius: "3px",
               color: "rgba(250,246,239,0.5)", fontFamily: "'Outfit', sans-serif",
-              fontSize: "13px", cursor: "pointer", transition: "all 0.2s",
+              fontSize: "13px", cursor: "pointer",
             }}>
               Clear All
             </button>
