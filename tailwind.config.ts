@@ -1,34 +1,35 @@
-import { createServerClient } from "@supabase/ssr";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
-import { cookies } from "next/headers";
-
-export async function createClient() {
-  const cookieStore = await cookies();
-
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
-          } catch {}
-        },
+import type { Config } from "tailwindcss";
+ 
+const config: Config = {
+  content: [
+    "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
+  ],
+  theme: {
+    extend: {
+      colors: {
+        bg: "#0e0b08",
+        ink: "#0e0b08",
+        clay: "#c8692e",
+        ember: "#e8843a",
+        gold: "#d4a853",
+        cream: "#faf6ef",
+        muted: "#7a6a58",
+        dim: "#1a1208",
+        subtle: "rgba(250,246,239,0.06)",
+        border: "rgba(200,105,46,0.12)",
       },
-    }
-  );
-}
-
-export function createAdminClient() {
-  return createSupabaseClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } }
-  );
-}
+      fontFamily: {
+        sans: ["var(--font-outfit)", "Outfit", "sans-serif"],
+        serif: ["Cormorant Garamond", "Georgia", "serif"],
+      },
+      borderRadius: {
+        sm: "3px",
+      },
+    },
+  },
+  plugins: [],
+};
+ 
+export default config;
